@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>어휘 워크북</title>
+<link rel="stylesheet" href="common.css">
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="index.html">워크북 툴</a>
+  <a href="어휘.html" aria-current="page">어휘</a>
+  <a href="어법.html">어법</a>
+  <a href="영작.html">영작</a>
+</nav>
+<header>
+  <h1>어휘 워크북</h1>
+  <div class="modes" id="modes">
+    <label><input type="radio" name="mode" value="sentence" checked> 문장 빈칸</label>
+    <label><input type="radio" name="mode" value="paragraph"> 문단 빈칸</label>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <h2>전처리 지문 <button id="example">예시 넣기</button></h2>
+    <textarea id="input" spellcheck="false" placeholder="메모장에서 전처리한 어휘용 지문을 붙여넣으세요."></textarea>
+    <div id="warnings"></div>
+    <details>
+      <summary>입력 규칙 보기</summary>
+      <p><b>공통</b> — 제목 줄(<code>본문 1</code>, <code>14-E</code>, <code>프린트 1번</code>처럼 짧고 마침표 없는 줄, 또는 <code># 아무 제목</code>) / 영어 문단은 한 줄에 / 바로 아래 줄에 한글 해석 / 빈 줄 = 문단 나눔</p>
+      <p>영어와 해석은 마침표 기준으로 자동으로 문장마다 짝지어집니다. 문장 수가 다르면 경고가 뜨니, 그 부분만 문장마다 줄을 나눠 주세요(영어 한 줄, 해석 한 줄 — 해석 앞 <code>=</code>는 있어도 없어도 됩니다).</p>
+      <p><code>[were fascinated by]</code> 빈칸 묶음 하나에 번호 하나 · <code>[+full of]</code> 같은 문장의 앞 빈칸과 같은 번호</p>
+      <p>처음 나오는 어휘에만 [ ]를 치세요. 같은 본문에서 다시 나오면(변화형 포함, 묶음 속 단어도 하나씩) 첫 글자만 남긴 빈칸으로 자동 처리되고, 아래에 목록이 나옵니다. 잘못 잡힌 단어는 목록에서 체크를 풀면 원래대로 돌아갑니다.</p>
+      <p>빈칸이 없는 문장은 문장 빈칸에서 자동으로 빠지고, 문단 빈칸에는 들어갑니다.</p>
+    </details>
+    <details>
+      <summary>내 불규칙형 추가</summary>
+      <p>중복 어휘로 같이 잡고 싶은 형태를 한 줄에 하나씩 <code>기본형: 변화형, 변화형</code>으로 적으세요. 바로 적용되고, 이 컴퓨터의 브라우저에 저장됩니다(메모장에 사본을 두면 안전합니다).</p>
+      <textarea id="myForms" spellcheck="false" style="height:8em" placeholder="leave: left&#10;see: saw"></textarea>
+    </details>
+  </section>
+  <section class="panel">
+    <h2>문제 <span><span class="ok" id="okQ"></span> <button data-copy="outQ">복사</button></span></h2>
+    <div class="out" id="outQ"></div>
+    <h2 style="margin-top:14px">정답 <span><span class="ok" id="okA"></span> <button data-copy="outA">복사</button></span></h2>
+    <div class="out" id="outA"></div>
+  </section>
+</main>
+<script src="common.js"></script>
+<script>
+function blankWords(text) {
+  return text.trim().split(/\s+/).map(w => {
+    const m = w.match(/^\((.+?)\)(.*)$/);
+    return m ? esc(m[1]) + line_(m[2].length) : line_(w.length);
+  }).join(' ');
+}
+const plain = s => s.replace(/^\s*\+/, '').replace(/\((.+?)\)/g, '$1').trim();
+
+// Words too common to count as a repeated 어휘.
+const SKIP = new Set('a an the be is are was were been being am of to in on at by for with from into and or but as that this these those it its they them their he she his her we us our you your i me my not no do does did have has had will would can could should may might must so than then there here which who whom whose what when where why how if also very just'.split(' '));
+// Look like a suffixed form but are separate words (news ≠ new, hardly ≠ hard).
+const OWN = new Set('news evening hardly lately nearly shortly highly mostly during'.split(' '));
+// The user's own forms from the "내 불규칙형 추가" box; they win over IRREG and OWN.
+const MY = {};
+function setMyForms(text) {
+  for (const k in MY) delete MY[k];
+  text.split(/\r?\n/).forEach(l => {
+    const [base, ...forms] = l.toLowerCase().split(/[\s:,]+/).filter(Boolean);
+    forms.forEach(f => { MY[f] = base; });
+  });
+}
+// Suffix rules (explore/exploring/explored, eager/eagerly) after mapping irregular forms (went → go).
+function stem(w) {
+  w = w.toLowerCase();
+  if (MY[w]) w = MY[w];
+  else {
+    if (OWN.has(w)) return w;
+    if (/s$/.test(w) && OWN.has(w.slice(0, -1))) return w.slice(0, -1); // evenings → evening
+    w = IRREG[w] || w;
+  }
+  for (const [suf, min] of [['ies', 3], ['ied', 3], ['ing', 3], ['ed', 3], ['es', 3], ['ly', 4], ['s', 3]]) {
+    if (w.endsWith(suf) && w.length - suf.length >= min) { w = w.slice(0, -suf.length) + (suf[0] === 'i' && suf !== 'ing' ? 'y' : ''); break; }
+  }
+  return w.replace(/([^aeiou])\1$/, '$1').replace(/e$/, '');
+}
+const hint = w => `(${w[0]})${w.slice(1)}`;
+
+// "본문 제목|word" keys the user unticked in the repeat list: those words are left as they are.
+const RELEASED = new Set();
+
+// Within each 본문, a word that already appeared inside [ ] becomes a first-letter blank wherever it shows up again.
+// Returns one note per word per 본문: { key, text, off }.
+function markRepeats(secs) {
+  const notes = new Map();
+  for (const s of secs) {
+    const seen = new Map(); // stem -> first form
+    const check = w => {
+      const k = stem(w);
+      if (SKIP.has(w.toLowerCase()) || !seen.has(k)) return false;
+      const key = `${s.title}|${w.toLowerCase()}`;
+      if (!notes.has(key)) notes.set(key, { key, text: `${s.title || '본문'}: ${w} ← ${seen.get(k)}`, count: 0, off: RELEASED.has(key) });
+      const n = notes.get(key);
+      n.count++;
+      return !n.off;
+    };
+    const remember = w => { const k = stem(w); if (!SKIP.has(w.toLowerCase()) && !seen.has(k)) seen.set(k, w); };
+    for (const st of s.paras.flat()) {
+      st.en = st.en.split(/(\[[^\]]*\])/).map(part => {
+        if (part.startsWith('[')) {
+          const plus = part.slice(1).trim().startsWith('+') ? '+' : '';
+          const words = plain(part.slice(1, -1)).split(/\s+/);
+          const body = words.map(w => /^[A-Za-z]/.test(w) && check(w.match(/[A-Za-z]+/)[0]) ? hint(w) : w).join(' ');
+          words.forEach(w => (w.match(/[A-Za-z]+/g) || []).forEach(remember));
+          return `[${plus}${body}]`;
+        }
+        return part.replace(/[A-Za-z]+/g, w => check(w) ? `[${hint(w)}]` : w);
+      }).join('');
+    }
+  }
+  return [...notes.values()].map(n => ({ key: n.key, off: n.off, text: n.count > 1 ? `${n.text} (${n.count}번)` : n.text }));
+}
+
+function build(mode, text) {
+  const secs = parse(text);
+  const notes = markRepeats(secs);
+  const q = [], a = [];
+
+  if (mode === 'sentence') {
+    for (const s of secs) {
+      const sents = s.paras.flat().filter(hasBlank);
+      if (!sents.length) continue;
+      let n = 0; // numbering restarts in each 본문
+      title(q, s.title); title(a, s.title);
+      for (const st of sents) {
+        const answers = []; // [number, [bodies]]; '[+...]' joins the previous blank in the same sentence
+        const html = esc(st.en).replace(BRACKET, (_, b) => {
+          const body = b.trim().replace(/^\+/, '');
+          if (b.trim().startsWith('+') && answers.length) { answers[answers.length - 1][1].push(body); return blankWords(body); }
+          answers.push([++n, [body]]);
+          return `${supNum(n)}${blankWords(body)}`;
+        });
+        q.push(`<p style="${P}">${html}</p>`);
+        q.push(`<p style="${KO}text-align:right;">${esc(st.ko)}</p>`);
+        for (const [k, bodies] of answers) a.push(`<p style="${P}">${k}) ${esc(bodies.join(' / '))}</p>`);
+      }
+    }
+  }
+
+  if (mode === 'paragraph') {
+    // Each 본문 twice: with 해석, then without.
+    for (const s of secs) {
+      const paras = s.paras.map(p => p.map(st => st.en).join(' '));
+      const blanked = paras.map(p => `<p style="${P}">${esc(p).replace(BRACKET, (_, b) => blankWords(b.replace(/^\s*\+/, '')))}</p>`).join('');
+      const ko = s.paras.flat().map(st => st.ko).filter(Boolean).join(' ');
+      title(q, s.title);
+      q.push(blanked);
+      if (ko) q.push(`<p style="${KO}">${esc(ko)}</p>`);
+      title(q, s.title);
+      q.push(blanked);
+      title(a, s.title);
+      // 【 】 because 한글 drops bold/underline on paste
+      a.push(paras.map(p => `<p style="${P}">${esc(p).replace(BRACKET, (_, b) => `<b><u>【${plain(b)}】</u></b>`)}</p>`).join(''));
+    }
+  }
+  return { q: q.join(''), a: a.join(''), notes, notesTitle: `자동 처리된 중복 어휘 ${notes.length}개` };
+}
+
+// Self-written example (the site is public, so no textbook passages here).
+const EXAMPLE = `본문 1
+Last summer, Mina [visited] an aquarium with her family and was [amazed by] the [colorful] fish. She [realized] that not only [is] the ocean [+full of] life, but it also needs [protection] from the people who visit it. Her brother took many pictures there.
+지난여름 미나는 가족과 함께 수족관을 방문했고 형형색색의 물고기에 놀랐다. 그녀는 바다가 생명으로 가득할 뿐만 아니라 그곳을 찾는 사람들로부터 보호받아야 한다는 것을 깨달았다. 그녀의 남동생은 그곳에서 사진을 많이 찍었다.`;
+
+if (typeof document !== 'undefined') {
+  const box = document.getElementById('myForms');
+  try { box.value = localStorage.getItem('vocab-myforms') || ''; } catch (e) {}
+  setMyForms(box.value);
+  box.addEventListener('input', () => {
+    setMyForms(box.value);
+    try { localStorage.setItem('vocab-myforms', box.value); } catch (e) {}
+    document.getElementById('input').dispatchEvent(new Event('input')); // re-render
+  });
+  try { JSON.parse(localStorage.getItem('vocab-released') || '[]').forEach(k => RELEASED.add(k)); } catch (e) {}
+  setupPage(build, EXAMPLE, 'vocab', (key, on) => {
+    on ? RELEASED.delete(key) : RELEASED.add(key);
+    try { localStorage.setItem('vocab-released', JSON.stringify([...RELEASED])); } catch (e) {}
+  });
+}
+</script>
+</body>
+</html>

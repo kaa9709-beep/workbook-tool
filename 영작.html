@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>영작 워크북</title>
+<link rel="stylesheet" href="common.css">
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="index.html">워크북 툴</a>
+  <a href="어휘.html">어휘</a>
+  <a href="어법.html">어법</a>
+  <a href="영작.html" aria-current="page">영작</a>
+</nav>
+<header>
+  <h1>영작 워크북</h1>
+  <div class="modes" id="modes">
+    <label><input type="radio" name="mode" value="arrange" checked> 배열 영작</label>
+    <label><input type="radio" name="mode" value="full"> 통영작</label>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <h2>전처리 지문 <button id="example">예시 넣기</button></h2>
+    <textarea id="input" spellcheck="false" placeholder="메모장에서 전처리한 영작용 지문을 붙여넣으세요."></textarea>
+    <div id="warnings"></div>
+    <details>
+      <summary>입력 규칙 보기</summary>
+      <p><b>공통</b> — 제목 줄(<code>본문 1</code>, <code>14-E</code>, <code>프린트 1번</code>처럼 짧고 마침표 없는 줄, 또는 <code># 아무 제목</code>) / 영어 문단은 한 줄에 / 바로 아래 줄에 한글 해석 / 영어와 해석은 마침표 기준으로 문장마다 짝지어집니다</p>
+      <p><code>[most people were fascinated by ...]</code> 영작할 부분 · 배열에서 한 덩어리로 둘 단어는 <code>{ }</code> (예: <code>[not {only is} the ocean full of life]</code>) · <code>또는</code> 뒤는 정답지에만 표시 · 번호는 본문마다 1번부터</p>
+      <p>[ ]가 없는 문장은 자동으로 빠집니다.</p>
+    </details>
+  </section>
+  <section class="panel">
+    <h2>문제 <span><span class="ok" id="okQ"></span> <button data-copy="outQ">복사</button></span></h2>
+    <div class="out" id="outQ"></div>
+    <h2 style="margin-top:14px">정답 <span><span class="ok" id="okA"></span> <button data-copy="outA">복사</button></span></h2>
+    <div class="out" id="outA"></div>
+  </section>
+</main>
+<script src="common.js"></script>
+<script>
+const alts = s => s.split(/\s*또는\s*/);
+// 배열 units: one per word, a {chunk} stays together ("not {only is} the" → not | only is | the); the older "a / b c / d" style still works.
+const units = main => (main.includes('/') ? main.split('/') : main.match(/\{[^}]*\}|[^\s{}]+/g) || [])
+  .map(s => s.replace(/[{}]/g, '').trim()).filter(Boolean);
+
+// Deterministic shuffle so the same input always gives the same 배열 order.
+function shuffle(units, seedText) {
+  let h = 2166136261;
+  for (const ch of seedText) h = Math.imul(h ^ ch.charCodeAt(0), 16777619);
+  const rnd = () => { h = Math.imul(h ^ (h >>> 15), 2246822507); h = Math.imul(h ^ (h >>> 13), 3266489909); return ((h ^= h >>> 16) >>> 0) / 4294967296; };
+  const a = units.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  if (a.length > 1 && a.every((u, i) => u === units[i])) a.push(a.shift());
+  return a;
+}
+
+function build(mode, text) {
+  const q = [], a = [], warns = [];
+  for (const s of parse(text)) {
+    const sents = s.paras.flat().filter(hasBlank);
+    if (!sents.length) continue;
+    let n = 0; // numbering restarts in each 본문
+    title(q, s.title); title(a, s.title);
+    for (const st of sents) {
+      n++;
+      const answers = [];
+      const html = esc(st.en).replace(BRACKET, (_, b) => {
+        if ((b.match(/\{/g) || []).length !== (b.match(/\}/g) || []).length) warns.push(`${s.title || '본문'} ${n}) [${b}]: { 와 } 개수가 맞지 않아요.`);
+        const [main, ...rest] = alts(b.trim());
+        const u = units(main);
+        answers.push([u.join(' '), ...rest.map(x => x.replace(/[{}]/g, ''))].join(' 또는 '));
+        return mode === 'arrange'
+          ? `[ ${shuffle(u, main).join(' / ')} ]`
+          : u.join(' ').split(/\s+/).map(w => line_(w.length)).join(' ');
+      });
+      q.push(`<p style="${KO}margin-bottom:3pt;">${n}) ${esc(st.ko)}</p>`);
+      q.push(`<p style="${P}margin-bottom:14pt;">${html}</p>`);
+      a.push(`<p style="${P}">${n}) ${answers.join(' / ')}</p>`);
+    }
+  }
+  return { q: q.join(''), a: a.join(''), warns };
+}
+
+// Self-written example (the site is public, so no textbook passages here).
+const EXAMPLE = `본문 1
+Last summer, [Mina visited an aquarium with her family]. She realized that [the ocean is {full of} life], and she decided [to use less plastic 또는 that she would use less plastic]. Her brother took many pictures of [the {sea animals} {swimming in} the tank].
+지난여름 미나는 가족과 함께 수족관을 방문했다. 그녀는 바다가 생명으로 가득하다는 것을 깨달았고, 플라스틱을 덜 쓰기로 결심했다. 그녀의 남동생은 수조 안에서 헤엄치는 바다 동물들의 사진을 많이 찍었다.`;
+
+if (typeof document !== 'undefined') setupPage(build, EXAMPLE, 'write');
+</script>
+</body>
+</html>

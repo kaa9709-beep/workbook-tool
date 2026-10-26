@@ -1,0 +1,230 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>어법 워크북</title>
+<link rel="stylesheet" href="common.css">
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="index.html">워크북 툴</a>
+  <a href="어휘.html">어휘</a>
+  <a href="어법.html" aria-current="page">어법</a>
+  <a href="영작.html">영작</a>
+</nav>
+<header>
+  <h1>어법 워크북</h1>
+  <div class="modes" id="modes">
+    <label><input type="radio" name="mode" value="verb" checked> 동사 지도</label>
+    <label><input type="radio" name="mode" value="choice"> 어법 선택형</label>
+    <label><input type="radio" name="mode" value="fix"> 어법 고치기</label>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <h2>전처리 지문 <button id="example">예시 넣기</button></h2>
+    <textarea id="input" spellcheck="false" placeholder="메모장에서 전처리한 어법용 지문을 붙여넣으세요."></textarea>
+    <div id="warnings"></div>
+    <details>
+      <summary>입력 규칙 보기</summary>
+      <p><b>공통</b> — 제목 줄(<code>본문 1</code>, <code>14-E</code>, <code>프린트 1번</code>처럼 짧고 마침표 없는 줄, 또는 <code># 아무 제목</code>) / 영어 문단은 한 줄에 / 빈 줄 = 문단 나눔 / 한글 해석 줄은 있어도 되고, 동사 지도에는 나오지 않습니다</p>
+      <p><code>[were fascinated]</code>처럼 정답만 쓰면 원형 <b>(fascinate)</b>은 툴이 만들고, 아래에 목록이 나옵니다. 사전에 없거나 두 가지로 볼 수 있는 단어는 빨간 경고가 뜹니다.</p>
+      <p>원형을 직접 정하려면 <code>[fascinate = were fascinated]</code> (왼쪽 원형, 오른쪽 정답) · 정답이 여럿이면 <code>또는</code></p>
+      <p><b>어법 선택형</b> — 선택지는 <code>/</code>로 나누고 정답 앞에 <code>*</code>: <code>[fascinated/*were fascinated]</code> · 정답이 여럿이면 모두 <code>*</code>: <code>[what/*that/*which]</code> · 선택지는 적은 순서 그대로 나오고, 괄호가 없는 문장은 빠집니다. 입력창 내용은 유형마다 따로 저장됩니다.</p>
+      <p><b>어법 고치기</b> — 틀리게 바꾼 곳만 <code>[틀린 표현 = 고친 표현]</code>, 옳게 바꾼 곳은 그냥 씁니다 · 정답이 여럿이면 <code>또는</code> · 제목의 <b>(N개)</b>는 자동으로 셉니다 · 단어를 빼야 하는 오류는 앞뒤 단어까지 묶어서 <code>[to work = work]</code> · 정답지에서 고친 부분은 <code>【were fascinated】</code>처럼 표시되고, 빼야 하는 단어는 <code>【삭제: in】</code>으로 나옵니다.</p>
+    </details>
+  </section>
+  <section class="panel">
+    <h2>문제 <span><span class="ok" id="okQ"></span> <button data-copy="outQ">복사</button></span></h2>
+    <div class="out" id="outQ"></div>
+    <h2 style="margin-top:14px">정답 <span><span class="ok" id="okA"></span> <button data-copy="outA">복사</button></span></h2>
+    <div class="out" id="outA"></div>
+  </section>
+</main>
+<script src="common.js"></script>
+<script>
+const CIRCLED = '➊➋➌➍➎➏➐➑➒➓⓫⓬⓭⓮⓯⓰⓱⓲⓳⓴';
+const circ = i => CIRCLED[i - 1] || `(${i})`;
+// Half-width space for "➊ ( fascinate )" and "[ a / b ]", checked in 한글 by the user. Narrow no-break space (U+202F), not
+// thin space (U+2009): a thin space let lines break right after "[" or "(". Output only; the 전처리 is written without it.
+const HALF = ' ';
+// "(셋 다 체크해야 함)": how many right options, in Korean.
+const KNUM = ['', '하나', '둘', '셋', '넷', '다섯', '여섯', '일곱', '여덟', '아홉', '열'];
+
+// Base forms of common verbs (plus every base in IRREG): a suffix-stripping candidate counts only if it is listed here.
+const VERBS = new Set((
+  'abandon abolish absorb abuse accept access accompany accomplish accumulate accuse achieve acknowledge acquire act adapt add address adjust admire admit adopt adore advance advertise advise advocate affect afford age agree aid aim alarm alert allocate allow alter amaze amuse analyze announce annoy answer anticipate apologize appeal appear applaud apply appoint appreciate approach approve argue arrange arrest arrive ask assemble assert assess assign assist associate assume assure attach attack attain attempt attend attract attribute avoid await award ' +
+  'bake balance ban bang bark base bathe battle beg behave believe belong benefit blame blend bless blink block board boast boil bomb book boost borrow bother bounce bow box brake breathe brush bubble budget bump burn burst bury buzz ' +
+  'calculate call calm camp campaign cancel capture care carry carve cast cause celebrate challenge change charge charm chase chat cheat check cheer chew chop circle cite claim clap clarify classify clean clear click climb close coach collaborate collapse collect colonize combine comfort command comment commit communicate compare compel compensate compete compile complain complete comply compose comprehend compromise conceal concede conceive concentrate concern conclude condemn conduct confess confide confine confirm conflict conform confront confuse congratulate connect conquer consent conserve consider consist console constitute construct consult consume contact contain contaminate contemplate contend continue contract contradict contrast contribute control convert convey convict convince cook cooperate coordinate cope copy correct correspond cost cough count cover crack crash crawl create credit criticize cross crowd cry cultivate cure curse cut cycle ' +
+  'damage dance dare date debate decay deceive decide declare decline decorate decrease dedicate deepen defeat defend define delay delete delight deliver demand demonstrate deny depart depend depict deposit deprive derive descend describe deserve design designate desire despise destroy detach detect deter determine develop devise devote diagnose dictate die differ digest diminish dine dip direct disagree disappear disappoint discard discharge discipline disclose discourage discover discriminate discuss disguise dislike dismiss display dispose dispute disrupt dissolve distinguish distort distract distribute disturb dive divide document dominate donate double doubt download drag drain dread dress drift drill drip drop drown dry dump dwell ' +
+  'earn ease echo edit educate elaborate elect eliminate embarrass embrace emerge emit emphasize employ empower empty enable enclose encounter encourage end endanger endure enforce engage enhance enjoy enlarge enrich enroll ensure enter entertain entitle envy equip erase erupt escape establish estimate evaluate evaporate evolve exaggerate examine exceed excel exchange excite exclaim exclude excuse execute exercise exhaust exhibit exist exit expand expect expel experience experiment explain explode exploit explore export expose express extend extract ' +
+  'face facilitate fade fail faint fancy fascinate fasten favor fear feature fetch file fill film filter finance fine finish fire fish fit fix flash flatter float flood flourish flow focus fold follow fool force forecast form formulate foster found frame free frighten frown frustrate fry fuel fulfill function fund furnish ' +
+  'gain gather gaze generate gesture gift giggle glance glare glide glimpse glow glue govern grab grade graduate grant grasp greet grieve grin grip groan guarantee guard guess guide ' +
+  'halt hammer handle happen harm harvest hate haunt head heal heap heat help hesitate hike hint hire honor hook hop hope host house hug hum hunt hurry hurt ' +
+  'identify ignore illustrate imagine imitate immigrate impact implement imply import impose impress imprison improve include incorporate increase indicate induce indulge infect infer influence inform inhabit inherit inhibit initiate injure inquire insert insist inspect inspire install instruct insult insure integrate intend interact interest interfere interpret interrupt interview introduce invade invent invest investigate invite involve iron isolate issue ' +
+  'jam join joke judge jump justify kick kill kiss knit knock ' +
+  'label lack land last laugh launch lay lean lease lecture lessen let level license lick lie lift like limit line link list listen live load loan locate lock long look loosen love lower ' +
+  'maintain manage manipulate manufacture march mark market marry master match matter mature maximize measure meditate melt memorize mention merge migrate mimic mind minimize miss mix moan mock model modify monitor motivate mount mourn move multiply murder ' +
+  'nail name narrow navigate need neglect negotiate nod note notice notify nourish number nurse nurture ' +
+  'obey object oblige observe obtain occupy occur offend offer omit open operate oppose opt order organize originate outline overlook owe own ' +
+  'pack paint pant park participate pass paste pat pause pave peel perceive perform permit persist persuade phone photograph pick picture pile pin place plan plant play plead please pledge plot plow plug plunge point poison polish pollute ponder pop pose possess post postpone pour practice praise pray preach precede predict prefer prepare prescribe present preserve press presume pretend prevail prevent print prioritize proceed process proclaim produce profit program progress prohibit project prolong promise promote prompt pronounce propose prosper protect protest provide provoke publish pull pump punch punish purchase pursue push put puzzle ' +
+  'qualify question queue quit quote ' +
+  'race rain raise range rank rate reach react read realize reason reassure rebel recall receive recite recognize recommend reconcile record recover recruit recycle reduce refer reflect reform refresh refuse regain regard register regret regulate rehearse reign reinforce reject rejoice relate relax release relieve rely remain remark remedy remember remind remove render renew rent repair repeat replace reply report represent reproduce request require rescue research resemble resent reserve reside resign resist resolve respect respond rest restore restrict result resume retain retire retreat retrieve return reveal reverse review revise revive revolve reward rinse rip risk roar roast rob rock roll rot rotate row rub ruin rule rush ' +
+  'sacrifice sail salute sample satisfy save scan scare scatter schedule scold score scratch scream screen search seat secure seem seize select sense separate serve set settle shape share shave shelter shift shiver shock shop shout shove shrug shut sigh sign signal simplify sip situate skate sketch ski skip slam slap slice slip smash smell smile smoke snap sneeze sniff soak sob solve sort sound spare spark spell spit splash split spoil sponsor spot spray spread squeeze stab stabilize stack stain stamp stare start starve state stay steer step stimulate stir stitch stop store stress stretch strip stroke struggle study stuff stumble submit substitute succeed suck suffer suggest suit summarize supervise supply support suppose suppress surf surge surprise surrender surround survey survive suspect suspend sustain swallow sway sweat switch symbolize sympathize ' +
+  'tackle talk tap target taste tax tease telephone tempt tend terrify test thank thrill thrive tick tickle tie tighten tip tire tolerate top toss total touch tour trace track trade train transfer transform translate transmit transport trap travel treat tremble trigger trim trip triumph trouble trust try tumble turn twist type ' +
+  'underline undo unfold unite unlock update upgrade upload upset urge use utilize vacuum value vanish vary venture verify view violate visit visualize volunteer vote ' +
+  'wade wait walk wander want warm warn wash waste watch water wave weaken wed weigh welcome wet whisper whistle widen wipe wish witness wonder work worry worship wrap wrestle wrinkle yawn yell yield zoom'
+).split(' ').concat(Object.values(IRREG)));
+const BE = new Set('am is are was were been being be'.split(' ')), HAVE = new Set('has had having have'.split(' ')), DO = new Set('does did doing do'.split(' '));
+// Verb forms that only 어법 needs (the 어휘 list leaves them out because they have a second meaning there).
+const EXTRA = { born: 'bear', borne: 'bear', saw: 'see', left: 'leave', rose: 'rise', ground: 'grind', bit: 'bite' };
+// Forms that are a verb of their own as well: the first is used, both are named in a warning.
+const AMBIG = { found: ['find', 'found'], lay: ['lie', 'lay'], wound: ['wind', 'wound'], bore: ['bear', 'bore'], bound: ['bind', 'bound'] };
+// Words skipped when looking for the main verb of an answer ("find out" → find).
+const PARTICLES = new Set('out up down off on in away back over about around through along for to by with of from into onto not never always also just even still already ever really'.split(' '));
+
+// One verb form → { base, sure, alts }. sure is false when the base is a guess (not in VERBS) or ambiguous.
+function lemma(word) {
+  const w = word.toLowerCase();
+  if (BE.has(w)) return { base: 'be', sure: true };
+  if (HAVE.has(w)) return { base: 'have', sure: true };
+  if (DO.has(w)) return { base: 'do', sure: true };
+  if (AMBIG[w]) return { base: AMBIG[w][0], sure: false, alts: AMBIG[w] };
+  if (IRREG[w] || EXTRA[w]) return { base: IRREG[w] || EXTRA[w], sure: true };
+  if (VERBS.has(w)) return { base: w, sure: true };
+  const cvc = s => /^[^aeiouy]*[aeiou][^aeiouwxy]$/.test(s); // one-syllable "tap": its -ed form would double, so "taped" is tape
+  const dbl = s => /([^aeioulsfz])\1$/.test(s) ? s.slice(0, -1) : null; // "stopp" → stop, but "fill" stays
+  let cands = [], guess = null;
+  if (/ed$/.test(w)) {
+    const s = w.slice(0, -2);
+    cands = [w.slice(0, -1), /ied$/.test(w) ? w.slice(0, -3) + 'y' : null, dbl(s), cvc(s) ? null : s];
+    guess = dbl(s) || (cvc(s) || /([cgvuz]|[bcdfgkpstz]l|th|at)$/.test(s) ? s + 'e' : s);
+  } else if (/ing$/.test(w)) {
+    const s = w.slice(0, -3);
+    cands = [/ying$/.test(w) ? s.slice(0, -1) + 'ie' : null, s + 'e', dbl(s), cvc(s) ? null : s];
+    guess = dbl(s) || (cvc(s) || /([cgvuz]|[bcdfgkpstz]l|th|at)$/.test(s) ? s + 'e' : s);
+  } else if (/s$/.test(w)) {
+    cands = [w.slice(0, -1), /es$/.test(w) ? w.slice(0, -2) : null, /ies$/.test(w) ? w.slice(0, -3) + 'y' : null];
+    guess = /ies$/.test(w) ? w.slice(0, -3) + 'y' : /(s|x|z|ch|sh)es$/.test(w) ? w.slice(0, -2) : w.slice(0, -1);
+  } else return { base: w, sure: true }; // no ending: already a base form
+  const hit = cands.find(c => c && VERBS.has(c));
+  return hit ? { base: hit, sure: true } : { base: guess, sure: false };
+}
+
+// "to be protected (또는 protection)" → the base of its main verb: last word that is not a particle, first alternative only.
+function baseOf(answer) {
+  const alt = answer.split('또는')[0].replace(/\([^)]*\)/g, '').trim();
+  const words = alt.split(/\s+/).map(x => x.replace(/[^A-Za-z]/g, '')).filter(Boolean);
+  const main = [...words].reverse().find(x => !PARTICLES.has(x.toLowerCase())) || words[words.length - 1] || '';
+  const r = lemma(main);
+  if (/^[A-Z]/.test(alt)) r.base = r.base[0].toUpperCase() + r.base.slice(1); // "Having moved" → (Move)
+  return r;
+}
+
+function build(mode, text) {
+  const q = [], a = [], notes = [], warns = [];
+  if (mode === 'verb') {
+    for (const s of parse(text)) {
+      let i = 0;
+      const ans = [], made = [];
+      const paras = s.paras.map(p => p.map(st => st.en).join(' ')).map(p =>
+        `<p style="${P}">${esc(p).replace(BRACKET, (_, b) => {
+          const k = b.indexOf('=');
+          const answer = (k < 0 ? b : b.slice(k + 1)).trim();
+          let base = k < 0 ? '' : b.slice(0, k).trim();
+          i++;
+          if (!base) { // only the answer was written: make the base form
+            const r = baseOf(answer);
+            base = r.base;
+            made.push(`${answer} → ${base}`);
+            const where = `${s.title || '본문'} ${circ(i)} ${answer} → (${base})`;
+            if (r.alts) warns.push(`${where}: ${r.alts.join(', ')} 둘 다 될 수 있어요. 다르면 [원형 = 정답]처럼 직접 적어 주세요.`);
+            else if (!r.sure) warns.push(`${where}: 사전에 없는 단어라 원형을 추측했어요. 틀렸으면 [원형 = 정답]처럼 직접 적어 주세요.`);
+          }
+          ans.push(`${circ(i)} ${answer}`);
+          return `${circ(i)}${HALF}<b>(${HALF}${base}${HALF})</b>`;
+        })}</p>`).join('');
+      if (!i) continue;
+      if (made.length) notes.push(`${s.title || '본문'}: ${made.join(' · ')}`);
+      title(q, s.title); title(a, s.title);
+      q.push(paras); // the answer table is added by hand in 한글: a pasted table breaks
+      for (const x of ans) a.push(`<p style="${P}">${x}</p>`);
+    }
+  }
+  if (mode === 'choice') {
+    for (const s of parse(text)) {
+      const sents = s.paras.flat().filter(hasBlank);
+      if (!sents.length) continue;
+      let n = 0; // numbering restarts in each 본문
+      title(q, s.title); title(a, s.title);
+      for (const st of sents) {
+        const html = esc(st.en).replace(BRACKET, (_, b) => {
+          const opts = b.split('/').map(o => o.trim());
+          const shown = opts.map(o => o.replace(/^\*\s*/, ''));
+          const right = opts.filter(o => o.startsWith('*')).map(o => o.replace(/^\*\s*/, ''));
+          n++;
+          const where = `${s.title || '본문'} ${n}번 [${b}]`;
+          if (!right.length) warns.push(`${where}: 정답 표시(*)가 없어요.`);
+          if (shown.length < 2) warns.push(`${where}: 선택지가 하나뿐이에요. / 를 빠뜨리지 않았는지 확인해 주세요.`);
+          if (shown.some(o => !o)) warns.push(`${where}: 빈 선택지가 있어요. / 가 연달아 있거나 맨 앞이나 끝에 있어요.`);
+          const dup = shown.find((o, k) => o && shown.indexOf(o) !== k);
+          if (dup) warns.push(`${where}: 같은 선택지 "${dup}"가 두 번 들어 있어요.`);
+          if (right.length > 1 && right.length === shown.length) warns.push(`${where}: 모든 선택지에 * 가 있어요. 맞는지 확인해 주세요.`);
+          a.push(`<p style="${P}">${n}) ${!right.length ? '(정답 표시 없음)' :
+            right.length === 1 ? right[0] : `${right.join(' 또는 ')} (${KNUM[right.length] || right.length} 다 체크해야 함)`}</p>`);
+          return `${supNum(n)}[${HALF}${shown.join(`${HALF}/${HALF}`)}${HALF}]`;
+        });
+        q.push(`<p style="${P}">${html}</p>`);
+        if (st.ko) q.push(`<p style="${KO}text-align:right;">${esc(st.ko)}</p>`);
+      }
+    }
+  }
+  if (mode === 'fix') {
+    // Problem: the passage with the wrong forms and "(N개)"; answer: the corrected passage, corrections in 【 】.
+    const RED = 'color:#FF0000;';
+    for (const s of parse(text)) {
+      const paras = s.paras.map(p => p.map(st => st.en).join(' '));
+      let n = 0;
+      const qp = [], ap = [];
+      for (const p of paras) {
+        const parts = [];
+        const html = esc(p).replace(BRACKET, (_, b) => {
+          const k = b.indexOf('=');
+          const wrong = (k < 0 ? b : b.slice(0, k)).trim(), right = k < 0 ? wrong : b.slice(k + 1).trim();
+          n++;
+          const where = `${s.title || '본문'} ${n}번째 [${b}]`;
+          if (k < 0) warns.push(`${where}: = 가 없어요. [틀린 표현 = 고친 표현]으로 적어 주세요.`);
+          else if (wrong === right) warns.push(`${where}: 틀린 표현과 고친 표현이 같아요.`);
+          const alts = right.split('또는').map(x => x.trim()).filter(Boolean);
+          // 【 】 because 한글 drops bold/colour on paste; right side empty means the words are to be deleted
+          parts.push(`<b style="${RED}">【${alts.length ? alts[0] + (alts.length > 1 ? ` (또는 ${alts.slice(1).join(', ')})` : '') : '삭제: ' + wrong}】</b>`);
+          return `\u0000${parts.length - 1}\u0000${wrong}\u0000`;
+        });
+        const tidy = x => x.replace(/ {2,}/g, ' ').replace(/ ([,.;:!?])/g, '$1').trim(); // an empty side leaves a double space
+        qp.push(`<p style="${P}">${tidy(html.replace(/\u0000\d+\u0000([^\u0000]*)\u0000/g, '$1'))}</p>`);
+        ap.push(`<p style="${P}">${tidy(html.replace(/\u0000(\d+)\u0000[^\u0000]*\u0000/g, (_, i) => parts[i]))}</p>`);
+      }
+      if (!n) continue;
+      title(q, `${s.title ? s.title + ' ' : ''}(${n}개)`); q.push(...qp);
+      title(a, s.title); a.push(...ap);
+    }
+  }
+  return { q: q.join(''), a: a.join(''), notes, warns, notesTitle: '자동으로 만든 원형 (확인용)' };
+}
+
+// Self-written examples (the site is public, so no textbook passages here).
+const EXAMPLE = {
+  verb: `본문 1
+Last summer, Mina [visited] an aquarium with her family. She [was amazed] by the colorful fish [swimming] in a huge tank. A guide [explained] that many sea animals [are endangered] by plastic waste. Since then, she has tried [to use 또는 using] less plastic.`,
+  choice: `본문 1
+Last summer, Mina [visit/*visited] an aquarium with her family and was [*amazed/amazing] by the colorful fish. When she asked the guide, “Are these fish [*caught/catching] in the sea?” he answered, “Not all of them. Some were born here, in the tank [*which/*that/what] you see.” She decided [*to learn/learning] more about sea animals.
+지난여름 미나는 가족과 함께 수족관을 방문했고 형형색색의 물고기에 놀랐다. 그녀가 가이드에게 “이 물고기들은 바다에서 잡힌 건가요?”라고 묻자, 그는 “전부는 아니에요. 몇몇은 여기, 보시는 수조에서 태어났어요.”라고 대답했다. 그녀는 바다 동물에 대해 더 배우기로 결심했다.`,
+  fix: `본문 1
+Last summer, Mina [visit = visited] an aquarium with her family. She was amazed by the colorful fish which [was = were] swimming in a huge tank. A guide explained that many sea animals [are endangering = are endangered] by plastic waste. Since then, she has tried to use less plastic, which [are = is] good for the ocean.`,
+};
+
+if (typeof document !== 'undefined') setupPage(build, EXAMPLE, 'grammar');
+</script>
+</body>
+</html>
