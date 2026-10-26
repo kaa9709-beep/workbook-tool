@@ -104,7 +104,7 @@ const title = (arr, t) => t && arr.push(`<p style="${TITLE}">${esc(t)}</p>`);
 
 // A note is plain text, or { key, text, off } shown as a checkbox (ticked = auto-processed).
 const noteHtml = n => typeof n === 'string' ? esc(n) :
-  `<label><input type="checkbox" data-key="${esc(n.key)}"${n.off ? '' : ' checked'}> ${n.off ? `<s>${esc(n.text)}</s>` : esc(n.text)}</label>`;
+  `<label><input type="checkbox" data-key="${esc(n.key)}"${n.off ? '' : ' checked'}> ${n.off && n.strike !== false ? `<s>${esc(n.text)}</s>` : esc(n.text)}</label>`;
 
 // Browser only: hooks up radios, textarea, example button and copy buttons for one tool page.
 // example: one text, or { mode: text } when each mode needs its own 전처리 — then the input is also kept per mode.
@@ -120,10 +120,11 @@ function setupPage(build, example, storeKey, onToggle) {
     const text = $('input').value;
     const r = build(mode(), text);
     $('outQ').innerHTML = r.q; $('outA').innerHTML = r.a;
-    const titles = parse(text).map(s => s.title).filter(Boolean);
+    const titles = (r.titles || parse(text).map(s => s.title)).filter(Boolean); // r.titles: page with its own input format
     $('warnings').innerHTML = (titles.length ? `<p class="note"><b>찾은 본문 ${titles.length}개</b>: ${titles.map(esc).join(' · ')}</p>` : '') +
-      warnings(text).concat(r.warns || []).map(w => `<p class="warn">${esc(w)}</p>`).join('') +
-      (r.notes && r.notes.length ? `<p class="note"><b>${r.notesTitle}</b>${r.notes.some(n => typeof n !== 'string') ? ' — 체크를 풀면 그 단어는 원래대로 둡니다.' : ''}<br>${r.notes.map(noteHtml).join('<br>')}</p>` : '');
+      (r.titles ? [] : warnings(text)).concat(r.warns || []).map(w => `<p class="warn">${esc(w)}</p>`).join('') +
+      (r.notes && r.notes.length ? `<p class="note"><b>${r.notesTitle}</b>${r.notesHint || (r.notes.some(n => typeof n !== 'string') ? ' — 체크를 풀면 그 단어는 원래대로 둡니다.' : '')}<br>${r.notes.map(noteHtml).join('<br>')}</p>` : '') +
+      (r.html || '');
     $('okQ').textContent = $('okA').textContent = '';
     store(inputKey(), text); store(storeKey + '-mode', mode());
   }

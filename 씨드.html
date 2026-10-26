@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>씨드</title>
+<link rel="stylesheet" href="common.css">
+<style>
+.pairs { width: 100%; margin-top: 8px; border-collapse: collapse; font-size: 13px; }
+.pairs td { padding: 6px 8px; vertical-align: top; border-top: 1px solid var(--line); }
+.pairs td:first-child { width: 2em; color: var(--muted); }
+.pairs label { display: block; margin-top: 4px; color: var(--accent); cursor: pointer; }
+</style>
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="index.html">워크북 툴</a>
+  <a href="어휘.html">어휘</a>
+  <a href="어법.html">어법</a>
+  <a href="영작.html">영작</a>
+  <a href="씨드.html" aria-current="page">씨드</a>
+</nav>
+<header>
+  <h1>씨드</h1>
+  <div class="modes" id="modes">
+    <label><input type="radio" name="mode" value="plain" checked> 상하씨드 (번호 X)</label>
+    <label><input type="radio" name="mode" value="num"> 상하씨드 (번호 O)</label>
+    <label><input type="radio" name="mode" value="line"> 한 줄 씨드</label>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <h2>PDF에서 긁은 지문 <button id="example">예시 넣기</button></h2>
+    <textarea id="input" spellcheck="false" placeholder="■ 본문 1 처럼 ■를 붙인 제목 → 영어 문단 → 한글 해석 문단 순서로, PDF에서 긁은 그대로 붙여넣으세요."></textarea>
+    <div id="warnings"></div>
+    <details>
+      <summary>입력 규칙 보기</summary>
+      <p><b>제목 줄</b> — 앞에 <code>■</code>를 붙인 줄만 제목입니다 (<code>■ 본문 1</code>, <code>■ 14-E</code>). 결과에는 ■ 없이 나오고, 번호는 제목마다 ➊부터.</p>
+      <p><b>지문</b> — 제목 아래에 영어를 PDF에서 긁은 그대로, 그 아래에 한글 해석을 그대로 붙여넣으세요. 줄바꿈·빈 줄은 툴이 정리하고, 영어 문단 하나 + 해석 문단 하나로 합칩니다. 문단 나누기는 한글에서 직접.</p>
+      <p><b>문장 나누기</b> — 마침표에서는 자동으로 나눕니다. <code>?</code> <code>!</code> 뒤, 따옴표 안, <code>Mr.</code> 같은 약어 뒤는 <b>애매한 곳</b> 목록에 체크박스로 나옵니다 (체크 = 나눔). 고른 내용은 이 컴퓨터에 저장돼 다음에도 그대로입니다.</p>
+      <p><b>영어·해석 문장 수가 다르면</b> — 짝 표가 나옵니다. 묶어야 할 문장에서 <b>다음 문장과 합치기</b>를 체크하세요. 번호 O·한 줄 씨드 모두 이 나눔을 그대로 따릅니다.</p>
+    </details>
+  </section>
+  <section class="panel">
+    <h2>결과 <span><span class="ok" id="okQ"></span> <button data-copy="outQ">복사</button></span></h2>
+    <div class="out" id="outQ" style="max-height:72vh"></div>
+    <div id="outA" hidden></div><span id="okA" hidden></span>
+  </section>
+</main>
+<script src="common.js"></script>
+<script>
+// Black circled numbers; ⓫–⓴ are the same style, there is nothing past 20.
+const NUM = '➊➋➌➍➎➏➐➑➒➓⓫⓬⓭⓮⓯⓰⓱⓲⓳⓴';
+const HALF = ' '; // 반 칸 that survives pasting into 한글 (see 어법 동사 지도)
+
+// Title: only a line starting with ■ ("■ 본문 1"), so no wrapped PDF line or # in a passage is taken for one.
+const isSeedTitle = l => l.startsWith('■');
+
+// Joins PDF lines into one paragraph; a line ending in "well-" or "—" continues without a space.
+const joinLines = lines => lines.reduce((a, l) => !a ? l : /[A-Za-z]-$|—$/.test(a) ? a + l : a + ' ' + l, '').replace(/\s+/g, ' ');
+
+function passages(text) {
+  const out = [];
+  let cur = null;
+  text.split(/\r?\n/).map(l => l.trim()).filter(Boolean).forEach(l => {
+    if (isSeedTitle(l)) { cur = { title: l.replace(/^■\s*/, ''), en: [], ko: [] }; out.push(cur); return; }
+    if (!cur) { cur = { title: '', en: [], ko: [] }; out.push(cur); }
+    (/[가-힣]/.test(l) ? cur.ko : cur.en).push(l);
+  });
+  return out.map(p => ({ title: p.title, en: joinLines(p.en), ko: joinLines(p.ko) }));
+}
+
+// Saved choices: boundary key → true (split) / false (join). Only choices that differ from the default are kept.
+let OVR = {};
+try { OVR = JSON.parse(localStorage.getItem('seed-splits')) || {}; } catch (e) {}
+const saveOvr = () => { try { localStorage.setItem('seed-splits', JSON.stringify(OVR)); } catch (e) {} };
+const DEF = {};
+
+// Every place a sentence could end, with its kind: sure (plain period), mark (? !), quote (inside “ ”), abbr (Mr. e.g.).
+// Returns the pieces after applying defaults + saved choices, and the boundaries between them.
+function split(text, en, title) {
+  const w = text ? text.split(' ') : [], pieces = [], bounds = [], cands = [];
+  let cur = [];
+  w.forEach((word, i) => {
+    cur.push(word);
+    const next = w[i + 1];
+    if (next === undefined || !/[.!?]["'”’)\]]*$/.test(word)) return;
+    if (en && !/^["'“‘(]*[A-Z0-9]/.test(next)) return;
+    const s = w.slice(0, i + 1).join(' ');
+    const inQuote = (s.match(/“/g) || []).length > (s.match(/”/g) || []).length || (s.match(/"/g) || []).length % 2;
+    const kind = inQuote ? 'quote' : en && ABBR.test(word) ? 'abbr' : en && /[?!]/.test(word) ? 'mark' : 'sure';
+    const key = `${title}|${en ? 'en' : 'ko'}|${w.slice(Math.max(0, i - 3), i + 1).join(' ')}|${next}`;
+    DEF[key] = kind === 'sure' || kind === 'mark';
+    const cut = key in OVR ? OVR[key] : DEF[key];
+    cands.push({ key, kind, cut, ctx: `…${w.slice(Math.max(0, i - 3), i + 1).join(' ')} ∣ ${w.slice(i + 1, i + 3).join(' ')}…` });
+    if (cut) { pieces.push(cur.join(' ')); bounds.push(key); cur = []; }
+  });
+  if (cur.length) pieces.push(cur.join(' '));
+  return { pieces, bounds, cands };
+}
+
+const num = n => (NUM[n - 1] || `(${n})`) + HALF;
+const para = s => `<p style="${P}">${esc(s)}</p>`;
+
+function build(mode, text) {
+  const out = [], warns = [], notes = [], tables = [], ps = passages(text);
+  for (const p of ps) {
+    const E = split(p.en, true, p.title), K = split(p.ko, false, p.title), name = p.title || '제목 없음';
+    E.cands.concat(K.cands).filter(c => c.kind !== 'sure' || c.key in OVR)
+      .forEach(c => notes.push({ key: c.key, text: `${name}: ${c.ctx}${c.cut ? '' : ' → 한 문장으로 묶음'}`, off: !c.cut, strike: false }));
+    if (!p.en) warns.push(`${name}: 영어 문단이 없어요.`);
+    if (!p.ko) warns.push(`${name}: 한글 해석이 없어요.`);
+    const n = E.pieces.length, m = K.pieces.length;
+    if (mode !== 'plain' && n > NUM.length) warns.push(`${name}: 문장이 ${n}개라 ${NUM.length + 1}번부터는 (21) 모양으로 넣었어요.`);
+    if (p.ko && n !== m) {
+      warns.push(`${name}: 영어 ${n}문장, 해석 ${m}문장이라 짝이 맞지 않아요. 아래 짝 표에서 합칠 문장을 체크하세요.`);
+      const box = (S, i) => S.bounds[i] ? `<label><input type="checkbox" data-key="join|${esc(S.bounds[i])}"> 다음 문장과 합치기</label>` : '';
+      tables.push(`<p class="note"><b>${esc(name)} 짝 표</b></p><table class="pairs">` +
+        Array.from({ length: Math.max(n, m) }, (_, i) =>
+          `<tr><td>${i + 1}</td><td>${esc(E.pieces[i] || '')}${box(E, i)}</td><td>${esc(K.pieces[i] || '')}${box(K, i)}</td></tr>`).join('') + '</table>');
+    }
+    title(out, p.title);
+    if (mode === 'line') {
+      for (let i = 0; i < Math.max(n, m); i++) out.push(para(E.pieces[i] || ''), para(K.pieces[i] || ''));
+    } else {
+      const join = S => mode === 'num' ? S.pieces.map((s, i) => num(i + 1) + s).join(' ') : S.pieces.join(' ');
+      out.push(para(join(E)));
+      if (p.ko) out.push(para(join(K)));
+    }
+  }
+  return {
+    q: out.join(''), a: '', warns, notes, html: tables.join(''),
+    titles: ps.map(p => p.title), notesTitle: '애매한 곳', notesHint: ' — 체크하면 거기서 문장을 나눕니다.',
+  };
+}
+
+function onToggle(key, ticked) {
+  const k = key.replace(/^join\|/, ''), cut = key.startsWith('join|') ? !ticked : ticked;
+  if (cut === DEF[k]) delete OVR[k]; else OVR[k] = cut;
+  saveOvr();
+}
+
+// Self-written example (the site is public, so no textbook passages here), wrapped like a PDF copy.
+const EXAMPLE = `■ 본문 1
+Last summer, Mina visited an aquarium with her
+family. "Wow! Look at that shark," she said. She
+realized that the ocean is full of life. Why do we
+throw so much plastic into it? She decided to use
+less plastic.
+지난여름 미나는 가족과 함께 수족관을 방문했다. 그녀는
+"와! 저 상어 좀 봐."라고 말했다. 그녀는 바다가 생명으로
+가득하다는 것을 깨달았다. 우리는 왜 그렇게 많은 플라스틱을
+바다에 버릴까? 그녀는 플라스틱을 덜 쓰기로 결심했다.`;
+
+if (typeof document !== 'undefined') setupPage(build, EXAMPLE, 'seed', onToggle);
+</script>
+</body>
+</html>

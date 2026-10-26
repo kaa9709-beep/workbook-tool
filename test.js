@@ -220,3 +220,53 @@ assert(same('leave', 'left') && same('leave', 'leaving') && same('hard', 'hardly
 vocabTool.setMyForms('');
 assert(!same('leave', 'left') && !same('hard', 'hardly'));
 console.log('all checks passed');
+
+// 씨드: PDF line breaks joined, 번호 O with 반 칸, ambiguous ? ! quote boundaries, pairing with 해석
+const seedTool = load('씨드.html', 'this.EXAMPLE=EXAMPLE;this.onToggle=onToggle;this.OVR=OVR;this.isSeedTitle=isSeedTitle;');
+const seedIn = `■ 14-E
+Old offices were built around
+functions and well-
+known rules. Is that enough? No! The
+change has started—
+quickly. "Stop. Wait," he said.
+낡은 사무실은 기능과 잘 알려진
+규칙을 중심으로 지어졌다. 그것으로 충분할까? 아니다! 변화는
+이미 빠르게 시작되었다. "멈춰. 기다려."라고 그가 말했다.`;
+const lines = h => text(h).replace(/&quot;/g, '"').split('\n');
+r = seedTool.build('plain', seedIn);
+assert.deepStrictEqual(lines(r.q), ['14-E',
+  'Old offices were built around functions and well-known rules. Is that enough? No! The change has started—quickly. "Stop. Wait," he said.',
+  '낡은 사무실은 기능과 잘 알려진 규칙을 중심으로 지어졌다. 그것으로 충분할까? 아니다! 변화는 이미 빠르게 시작되었다. "멈춰. 기다려."라고 그가 말했다.']);
+assert.deepStrictEqual([...r.titles], ['14-E']);
+assert.deepStrictEqual([...r.warns], [], 'English 5 = 해석 5');
+// ? and ! split by default but are listed; the period inside quotes is listed and not split
+assert.deepStrictEqual([...r.notes].map(n => [n.text.split(': ')[1].replace(' → 한 문장으로 묶음', ''), n.off]), [
+  ['…rules. Is that enough? ∣ No! The…', false], ['…Is that enough? No! ∣ The change…', false],
+  ['…change has started—quickly. "Stop. ∣ Wait," he…', true], ['…이미 빠르게 시작되었다. "멈춰. ∣ 기다려."라고 그가…', true]]);
+r = seedTool.build('num', seedIn);
+assert.strictEqual(lines(r.q)[1], '➊ Old offices were built around functions and well-known rules. ➋ Is that enough? ➌ No! ➍ The change has started—quickly. ➎ "Stop. Wait," he said.');
+assert(lines(r.q)[2].startsWith('➊ 낡은') && lines(r.q)[2].includes('➎ "멈춰.'));
+
+// Unticking "No!" joins two sentences; 해석 then has one more → warning + pair table; joining the 해석 too fixes it
+const noKey = r.notes[1].key;
+seedTool.onToggle(noKey, false);
+r = seedTool.build('line', seedIn);
+assert(r.warns[0].includes('영어 4문장, 해석 5문장') && r.html.includes('다음 문장과 합치기'));
+const koKey = r.html.match(/data-key="join\|([^"]*아니다!\|변화는)"/)[1].replace(/&quot;/g, '"');
+seedTool.onToggle('join|' + koKey, true);
+r = seedTool.build('line', seedIn);
+assert.deepStrictEqual([...r.warns], []);
+assert.deepStrictEqual(lines(r.q).slice(5, 7), ['No! The change has started—quickly.', '아니다! 변화는 이미 빠르게 시작되었다.'], '한 줄 씨드 follows the same split');
+assert(r.notes.some(n => n.key === koKey && n.off), 'a manual join stays listed so it can be undone');
+seedTool.onToggle(noKey, true); seedTool.onToggle(koKey, true);
+assert.deepStrictEqual({ ...seedTool.OVR }, {}, 'back to default = nothing saved');
+
+// Titles: only lines starting with ■; wrapped PDF lines and a # in a passage are not titles
+assert(['■ 본문 1', '■14-E', '■ Into a New World'].every(seedTool.isSeedTitle));
+assert(!['본문 1', 'structures', 'Iron Man 2', '#1', '# 본문 2'].some(seedTool.isSeedTitle));
+// More than 20 sentences: warned, (21) after ⓴
+r = seedTool.build('num', '■ 본문 9\n' + Array.from({ length: 21 }, (_, i) => `Line ${i + 1} ends.`).join(' ') + '\n해석.');
+assert(r.q.includes('⓴ Line 20') && r.q.includes('(21) Line 21') && r.warns.some(w => w.includes('21번부터')));
+// Page example: no warnings
+assert.deepStrictEqual([...seedTool.build("num", seedTool.EXAMPLE).warns], []);
+console.log('씨드 checks passed');
