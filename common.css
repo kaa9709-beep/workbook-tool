@@ -2,75 +2,120 @@
 /* Pretendard loads when online; without internet the pages fall back to 맑은 고딕. */
 @import url("https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css");
 
+/* Colors after the academy portal: 밝게 = its sign-in page, 어둡게 = its dashboard. One blue for everything you can press. */
+:root, [data-theme="light"] {
+  --bg: #f2f4f6; --surface: #fff; --surface-2: #f7f8fa; --line: #e5e8eb; --text: #191f28; --muted: #6b7684;
+  --accent: #1b64da; --accent-text: #1b64da; --accent-soft: #e8f0fd; --accent-shadow: rgba(0, 91, 237, .13);
+  --ok: #1a7f52; --ok-soft: #e3f5ec; --warn: #c4302b; --warn-soft: #fdeceb;
+  color-scheme: light;
+}
+[data-theme="dark"] {
+  --bg: #17191c; --surface: #202329; --surface-2: #292e36; --line: #30353e; --text: #f2f4f6; --muted: #9ea4ae;
+  --accent: #1b64da; --accent-text: #90c2ff; --accent-soft: #233552; --accent-shadow: rgba(0, 0, 0, .3);
+  --ok: #68c3a0; --ok-soft: #2b3f3a; --warn: #ff8f87; --warn-soft: #43292b;
+  color-scheme: dark;
+}
 :root {
-  --bg: #f5f5f7; --surface: #fff; --line: #e0e0e0; --text: #1d1d1f; --muted: #7a7a7a;
-  --accent: #0066cc; --accent-focus: #0071e3; --accent-soft: #e8f1fb;
-  --ok: #1a7f37; --ok-soft: #e6f4ea; --warn: #b3261e; --warn-soft: #fdecea;
-  --radius: 18px;
-  --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Pretendard", "Malgun Gothic", sans-serif;
+  --radius: 24px; --radius-inner: 14px; --radius-button: 10px;
+  --font: "Pretendard", -apple-system, BlinkMacSystemFont, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --side: 232px;
 }
 * { box-sizing: border-box; }
-body { margin: 0; font-family: var(--font); font-size: 14px; letter-spacing: -0.224px; word-break: keep-all; background: var(--bg); color: var(--text); }
+body { margin: 0; padding-left: var(--side); font-family: var(--font); font-size: 15px; letter-spacing: -0.2px; word-break: keep-all; background: var(--bg); color: var(--text); }
 
-/* Top menu shared by all pages */
-.topnav { display: flex; align-items: center; gap: 4px; height: 44px; padding: 0 20px; background: #000; overflow-x: auto; }
-.topnav a { padding: 6px 12px; color: #ccc; font-size: 13px; text-decoration: none; white-space: nowrap; }
-.topnav a:hover { color: #fff; }
-.topnav a[aria-current="page"] { color: #fff; font-weight: 600; }
-.topnav .brand { padding-left: 0; margin-right: 12px; color: #fff; font-size: 15px; font-weight: 600; }
-.topnav .brand:hover, .topnav .brand[aria-current="page"] { color: #fff; }
+/* Side menu shared by all pages (a top bar on narrow screens). theme.js adds the icons, group names and 화면 모드. */
+.topnav { position: fixed; inset: 12px auto 12px 12px; width: calc(var(--side) - 24px); display: flex; flex-direction: column; gap: 2px;
+  padding: 20px 12px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.topnav a { display: flex; align-items: center; gap: 12px; padding: 10px 12px; color: var(--muted); font-size: 15px; text-decoration: none; white-space: nowrap; border-radius: 12px; }
+.topnav a svg { flex: none; }
+.topnav a:hover { color: var(--text); background: var(--surface-2); }
+.topnav a[aria-current="page"] { color: var(--accent-text); background: var(--accent-soft); font-weight: 600; }
+.topnav .brand { margin-bottom: 4px; color: var(--text); font-size: 18px; font-weight: 700; }
+.topnav .brand[aria-current="page"] { color: var(--text); background: none; }
+.topnav .brand svg { color: var(--accent-text); }
+.topnav .group { padding: 16px 12px 6px; font-size: 13px; color: var(--muted); }
+.screen-mode { position: relative; display: flex; align-items: center; gap: 10px; margin: 4px 0 6px; padding: 10px 12px; font-size: 14px; font-weight: 600;
+  color: var(--text); background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-inner); cursor: pointer; }
+.screen-mode span { flex: 1; }
+.screen-mode select { padding: 2px 4px; font: inherit; font-weight: 500; color: var(--muted); background: transparent; border: 0; cursor: pointer; }
+.screen-mode select:focus-visible { outline: 2px solid var(--accent); border-radius: 6px; }
+@media (max-width: 900px) {
+  body { padding-left: 0; }
+  .topnav { position: static; inset: auto; width: auto; flex-direction: row; align-items: center; margin: 12px 12px 0; padding: 8px; overflow-x: auto; border-radius: 18px; }
+  .topnav a { padding: 8px 10px; font-size: 14px; }
+  .topnav .group { display: none; }
+  .screen-mode { order: 99; margin: 0 0 0 auto; padding: 6px 10px; }
+  .screen-mode span { display: none; }
+}
 
 /* Page title + mode switch */
-header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 20px; padding: 18px 20px 0; }
-header h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -0.374px; }
-.modes { display: inline-flex; flex-wrap: wrap; max-width: 100%; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: 9999px; }
-.modes label { position: relative; padding: 6px 16px; border-radius: 9999px; color: var(--muted); white-space: nowrap; cursor: pointer; }
-.modes label:hover { color: var(--text); }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 14px 24px; padding: 32px 28px 0; }
+header h1 { margin: 0; font-size: 32px; font-weight: 700; letter-spacing: -0.6px; }
+.modes { display: inline-flex; flex-wrap: wrap; max-width: 100%; gap: 4px; padding: 4px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-inner); }
+.modes label { position: relative; padding: 8px 16px; border-radius: var(--radius-button); color: var(--muted); font-weight: 500; white-space: nowrap; cursor: pointer; }
+.modes label:hover { color: var(--text); background: var(--surface-2); }
 .modes input { position: absolute; opacity: 0; pointer-events: none; }
-.modes label:has(input:checked) { background: var(--accent); color: #fff; }
-.modes label:has(input:focus-visible) { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+.modes label:has(input:checked) { background: var(--accent); color: #fff; box-shadow: 0 2px 5px var(--accent-shadow); }
+.modes label:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
 
 /* Two panels: input | results */
-main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding: 16px 20px 24px; }
-@media (max-width: 900px) { main { grid-template-columns: minmax(0, 1fr); } }
-@media (max-width: 600px) { .topnav, header, main { padding-left: 16px; padding-right: 16px; } }
-.panel { min-width: 0; padding: 24px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
-.panel h2 { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 12px; font-size: 17px; font-weight: 600; letter-spacing: -0.374px; }
-.panel h2 > span { display: flex; align-items: center; gap: 6px; }
-textarea { width: 100%; height: 55vh; padding: 10px 12px; font: 14px/1.6 Consolas, "Malgun Gothic", monospace; color: var(--text); background: #fafafc; border: 1px solid var(--line); border-radius: 11px; resize: vertical; }
-textarea:focus { outline: 2px solid var(--accent-focus); outline-offset: -1px; border-color: transparent; }
-.out { max-height: 34vh; overflow: auto; padding: 12px 16px; background: #fff; border: 1px solid var(--line); border-radius: 11px; }
+main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; padding: 20px 28px 32px; }
+@media (max-width: 1200px) { main { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 600px) { header, main { padding-left: 16px; padding-right: 16px; } }
+.panel { min-width: 0; padding: 28px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.panel h2 { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin: 0 0 14px; font-size: 20px; font-weight: 700; letter-spacing: -0.4px; }
+.panel h2 > span { display: flex; align-items: center; gap: 8px; }
+textarea { width: 100%; height: 55vh; padding: 14px 16px; font: 14px/1.7 Consolas, "Pretendard", "Malgun Gothic", monospace; color: var(--text);
+  background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--radius-inner); resize: vertical; }
+textarea:focus, input[type="text"]:focus, input[type="number"]:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: transparent; }
+input[type="text"], input[type="number"] { color: var(--text); background: var(--surface-2); }
+/* Result preview stays white paper in both modes: it is what lands in 한글. */
+.out { max-height: 34vh; overflow: auto; padding: 14px 18px; color: #000; background: #fff; border: 1px solid var(--line); border-radius: var(--radius-inner); color-scheme: light; }
+.out:empty { display: flex; align-items: center; justify-content: center; min-height: 96px; color: var(--muted); background: var(--surface-2); border-style: dashed; color-scheme: inherit; }
+.out:empty::before { content: "결과가 여기에 나와요"; font-size: 14px; }
+input[type="file"] { font: inherit; font-size: 14px; color: var(--muted); }
+input[type="file"]::file-selector-button { margin-right: 10px; padding: 8px 16px; font: inherit; font-weight: 600; color: var(--text); background: var(--surface-2);
+  border: 1px solid var(--line); border-radius: var(--radius-button); cursor: pointer; }
+input[type="file"]::file-selector-button:hover { border-color: var(--accent); color: var(--accent-text); }
 
-button { padding: 6px 16px; font: inherit; font-size: 13px; color: var(--accent); background: var(--surface); border: 1px solid var(--accent); border-radius: 9999px; cursor: pointer; transition: transform .1s; }
-button:hover { color: #fff; background: var(--accent); }
-button:active { transform: scale(0.95); }
-button:focus-visible { outline: 2px solid var(--accent-focus); outline-offset: 2px; }
+/* Buttons: quiet by default, filled blue for the main action (복사, 내려받기) */
+button { padding: 8px 16px; font: inherit; font-size: 14px; font-weight: 600; color: var(--text); background: var(--surface-2); border: 1px solid var(--line);
+  border-radius: var(--radius-button); cursor: pointer; transition: transform .1s, background .15s, border-color .15s; }
+button:hover { border-color: var(--accent); color: var(--accent-text); }
+button:active { transform: scale(0.96); }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+button:disabled { opacity: .45; cursor: default; transform: none; }
+button[data-copy], #download { color: #fff; background: var(--accent); border-color: var(--accent);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .2), 0 2px 5px var(--accent-shadow); }
+button[data-copy]:hover, #download:hover { color: #fff; background: #1957c2; }
 
 /* "복사됨" badge next to the copy buttons */
-.ok { padding: 2px 9px; font-size: 12px; font-weight: 600; color: var(--ok); background: var(--ok-soft); border-radius: 999px; }
+.ok { padding: 3px 10px; font-size: 12px; font-weight: 600; color: var(--ok); background: var(--ok-soft); border-radius: 999px; }
 .ok:empty { display: none; }
 .ok.fail { color: var(--warn); background: var(--warn-soft); }
 
 /* Messages under the input */
-.warn { margin: 8px 0 0; padding: 6px 10px; font-size: 13px; color: var(--warn); background: var(--warn-soft); border-radius: 8px; }
-.note { margin: 8px 0 0; padding: 8px 10px; font-size: 13px; line-height: 1.7; color: #333; background: var(--bg); border-radius: 8px; }
+.warn { margin: 10px 0 0; padding: 10px 14px; font-size: 14px; color: var(--warn); background: var(--warn-soft); border-radius: 12px; }
+.note { margin: 10px 0 0; padding: 12px 14px; font-size: 14px; line-height: 1.7; color: var(--text); background: var(--surface-2); border-radius: 12px; }
 .note label { cursor: pointer; }
+.note:empty, .warn:empty { display: none; }
 
 /* Collapsible help: looks clickable, arrow turns when open */
-details { margin-top: 10px; padding-top: 6px; font-size: 13px; color: var(--muted); border-top: 1px solid var(--line); }
-details summary { display: flex; align-items: center; gap: 6px; width: fit-content; padding: 4px 0; color: var(--accent); list-style: none; cursor: pointer; }
+details { margin-top: 14px; padding-top: 10px; font-size: 14px; color: var(--muted); border-top: 1px solid var(--line); }
+details summary { display: flex; align-items: center; gap: 6px; width: fit-content; padding: 6px 10px; margin-left: -10px; color: var(--accent-text); font-weight: 600;
+  list-style: none; border-radius: var(--radius-button); cursor: pointer; }
 details summary::-webkit-details-marker { display: none; }
 details summary::before { content: "▸"; display: inline-block; transition: transform .15s; }
 details[open] summary::before { transform: rotate(90deg); }
-details summary:hover { text-decoration: underline; }
-details p { line-height: 1.7; }
-details code { padding: 0 4px; font-family: Consolas, monospace; color: var(--text); background: var(--accent-soft); border-radius: 4px; }
+details summary:hover { background: var(--accent-soft); }
+details p { line-height: 1.75; }
+details code { padding: 1px 5px; font-family: Consolas, monospace; color: var(--text); background: var(--accent-soft); border-radius: 5px; }
 
 /* Start page */
-.lead { max-width: 560px; margin: 48px auto 0; padding: 0 16px; font-size: 17px; line-height: 1.47; letter-spacing: -0.374px; color: var(--muted); }
-.menu { display: grid; gap: 12px; max-width: 560px; margin: 16px auto 32px; padding: 0 16px; }
-.menu a { display: block; padding: 24px; color: inherit; text-decoration: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); transition: border-color .15s, transform .1s; }
+.lead { max-width: 640px; margin: 56px auto 0; padding: 0 16px; font-size: 17px; line-height: 1.6; color: var(--muted); }
+.menu { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; max-width: 880px; margin: 20px auto 40px; padding: 0 16px; }
+.menu a { display: block; padding: 26px; color: inherit; text-decoration: none; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); transition: border-color .15s, transform .1s; }
 .menu a:hover { border-color: var(--accent); }
 .menu a:active { transform: scale(0.98); }
-.menu b { display: block; margin-bottom: 4px; font-size: 21px; font-weight: 600; letter-spacing: -0.374px; }
-.menu span { font-size: 13px; color: var(--muted); }
+.menu b { display: block; margin-bottom: 6px; font-size: 20px; font-weight: 700; letter-spacing: -0.4px; }
+.menu span { font-size: 14px; line-height: 1.6; color: var(--muted); }
