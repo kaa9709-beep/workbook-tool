@@ -314,3 +314,71 @@ assert(vocabTool.build('sentence', classIn).a.includes('(e)xplored'), '문장 �
 assert.strictEqual(classTool.entry(['found'], false).guesses.length, 1, 'two-meaning form is flagged');
 assert.deepStrictEqual([...classTool.build('example', classTool.EXAMPLE).notes], []);
 console.log('수업용 자료 checks passed');
+
+// 수업 자료 파일 (자료.html + hwpx.js): 씨드 → 한글 파일
+const fileTool = {}, plain = x => JSON.parse(JSON.stringify(x)); // values from the vm context, as plain data
+vm.runInNewContext(common + fs.readFileSync(__dirname + '/hwpx.js', 'utf8') + fs.readFileSync(__dirname + '/자료.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1]
+  + ';Object.assign(out, { passages, warnings, setNum, lineCount, unzip, topParas, readTemplate, makeFile, pagePlan, LINE_GAP });', { out: fileTool, TextDecoder, TextEncoder });
+const seed = `본문 1
+➊ She dives. ➋ She swims.
+* dive: 잠수하다
+➊ 그녀는 잠수한다. ➋ 그녀는 수영한다.
+본문 2
+➊ Fish live here.
+➊ 물고기가 여기 산다.`;
+const sp = fileTool.passages(seed);
+assert.deepStrictEqual(plain(sp.map(p => [p.title, p.en.flat().map(x => x.n + x.s), p.ko.flat().length, p.notes])),
+  [['본문 1', ['➊She dives.', '➋She swims.'], 2, ['* dive: 잠수하다']], ['본문 2', ['➊Fish live here.'], 1, []]]);
+assert.deepStrictEqual(plain(fileTool.warnings(fileTool.passages('본문 1\n➊ A. ➋ B.\n➊ 가.'))), ['본문 1: 해석에 없는 번호 ➋ — 한 줄 해석에서 해석이 비어요.']);
+// '새 번호로 시작': one control, put in an empty run, stacked leftovers dropped, removed when empty
+const blankP = '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="1"><hp:run charPrIDRef="1"/></hp:p>';
+assert.strictEqual(fileTool.setNum(blankP, 12), '<hp:p id="0" paraPrIDRef="0" styleIDRef="0" pageBreak="1"><hp:run charPrIDRef="1"><hp:ctrl><hp:newNum num="12" numType="PAGE"/></hp:ctrl></hp:run></hp:p>');
+const stacked = '<hp:p><hp:run charPrIDRef="1"><hp:ctrl><hp:newNum num="37" numType="PAGE"/></hp:ctrl><hp:ctrl><hp:newNum num="47" numType="PAGE"/></hp:ctrl><hp:t/></hp:run></hp:p>';
+assert.strictEqual((fileTool.setNum(stacked, 9).match(/newNum/g) || []).length, 1);
+assert(fileTool.setNum(stacked, 9).includes('num="9"'));
+assert(!fileTool.setNum(stacked, null).includes('newNum'));
+// line wrapping: 페이퍼로지 10pt in the original's line width
+const en10 = { font: '페이퍼로지 5 Medium', size: 1000, spacing: 0 };
+assert.strictEqual(fileTool.lineCount('She is the legendary marine biologist named Sylvia Earle.', en10, 50324), 1);
+assert.strictEqual(fileTool.lineCount('When most people were fascinated by the mysteries of exploring space, one remarkable individual appreciated the appeal of the ocean before many others, and eagerly explored the deep ocean.', en10, 50324), 3, '한글 made 3 lines of it');
+assert.strictEqual(fileTool.LINE_GAP, 4);
+
+// The whole file, from the finished 수업용 자료 on this computer (samples/ is not in git: textbook text).
+const tplPath = __dirname + '/samples/3. 영어2_YBM_박준언_4과_수업용_자료.hwpx';
+if (!fs.existsSync(tplPath)) console.log('수업 자료 파일: template not here, file checks skipped');
+else (async () => {
+  const zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
+  const files = await fileTool.unzip(fs.readFileSync(tplPath), inflate), T = fileTool.readTemplate(files);
+  assert.deepStrictEqual(plain([T.academy, T.school, T.book.name, T.cover.text, T.nums.map(p => p && p.num)]),
+    ['대치하이 영어학원', '다산고 2학년 2학기 중간고사 대비', '영어 2 (YBM 박준언)', '영어 2 (YBM 박준언) 4과', [31, null, 47, 48]]);
+  // the original's own 본문 → only 본문 1 fits one page in 한 줄 해석 (the user added a blank page there by hand)
+  const ps = fileTool.topParas(dec(files['Contents/section0.xml']));
+  const t1 = ps.findIndex(p => p.text === '본문 1'), t2 = ps.findIndex((p, i) => i > t1 && p.text === '본문 1');
+  const original = fileTool.passages(ps.slice(t1, t2).filter(p => p.text && !p.shape && !(/해석/.test(p.text) && p.text.length < 10)).map(p => p.text.replace(/\s+/g, ' ')).join('\n'));
+  assert.deepStrictEqual(plain(fileTool.pagePlan(T, dec(files["Contents/header.xml"]), original).map(x => x.onePage)), [true, false, false, false, false, false, false]);
+
+  const out = await fileTool.unzip(fileTool.makeFile(files, seed + '\n본문 3\n' + [...'➊➋➌➍➎➏➐➑➒➓⓫'].map(n => n + ' Hi.').join(' ') + '\n' + [...'➊➋➌➍➎➏➐➑➒➓⓫'].map(n => n + ' 안녕.').join(' '),
+    { cover: '영어 독해와 작문 (천재 강상구) 3과', lesson: 'Lesson 9. Test', academy: '센티움학원', book: '영어 독해와 작문 (천재 강상구)', school: '시험고 1학년 기말고사 대비', nums: [11, 12, 27, 28] }));
+  assert.deepStrictEqual(Object.keys(out), Object.keys(files), 'same parts, same order');
+  const sec = dec(out['Contents/section0.xml']), header = dec(out['Contents/header.xml']), masters = dec(out['Contents/masterpage0.xml']) + dec(out['Contents/masterpage1.xml']);
+  assert.deepStrictEqual([...sec.matchAll(/<hp:newNum num="(\d+)"/g)].map(m => +m[1]), [11, 12, 27, 28]);
+  assert.strictEqual((sec.match(/영어<hp:fwSpace\/>독해와<hp:fwSpace\/>작문/g) || []).length, 2, 'both covers');
+  assert(!/대치하이|다산고|박준언/.test(masters) && masters.includes('센티움학원 김진혁 영어') && masters.includes('시험고 1학년 기말고사 대비') && masters.includes('Lesson 9. Test'));
+  const bookRun = masters.match(/<hp:run charPrIDRef="(\d+)"><hp:t>영어 독해와 작문 \(천재 강상구\)<\/hp:t>/);
+  assert(bookRun && +header.match(new RegExp('<hh:charPr id="' + bookRun[1] + '" height="(\\d+)"'))[1] < 1200, '교재 이름 shrunk to one line');
+  assert(/<hp:textMargin left="\d{3,}" right="\d{4,}"/.test(masters.slice(masters.indexOf(bookRun[0]))), 'old padding became box margins');
+  // * 주석: '본문' style, right-aligned
+  const noteP = sec.slice(sec.lastIndexOf('<hp:p ', sec.indexOf('* dive')), sec.indexOf('* dive'));
+  const notePr = noteP.match(/paraPrIDRef="(\d+)" styleIDRef="(\d+)"/);
+  assert(header.includes(`<hh:style id="${notePr[2]}" type="PARA" name="본문"`) && new RegExp('<hh:paraPr id="' + notePr[1] + '"[^>]*><hh:align horizontal="RIGHT"').test(header));
+  // 한 줄 해석: 본문마다 its own 문단 번호, 10+ on a second one that starts at 10
+  const lineIds = [...sec.matchAll(/<hp:p [^>]*paraPrIDRef="(\d+)"[^>]*>(?:(?!<\/hp:p>)[\s\S])*?<hp:lineBreak\/>/g)].map(m => m[1]);
+  assert.deepStrictEqual(lineIds.map(id => id === lineIds[0] ? 'a' : id === lineIds[2] ? 'b' : id === lineIds[3] ? 'c' : id === lineIds[12] ? 'd' : id),
+    ['a', 'a', 'b', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'c', 'd', 'd']);
+  const numOf = id => header.match(new RegExp('<hh:paraPr id="' + id + '"[\\s\\S]*?idRef="(\\d+)" level="0"'))[1];
+  const head = id => header.match(new RegExp('<hh:numbering id="' + numOf(id) + '"[^>]*><hh:paraHead start="(\\d+)"[^>]*>([^<]*)')).slice(1).join(' ');
+  assert.deepStrictEqual([head(lineIds[0]), head(lineIds[3]), head(lineIds[12])], ['1 0^1.', '1 0^1.', '10 ^1.']);
+  for (const [k, v] of [['numberings', 'numbering'], ['paraProperties', 'paraPr'], ['charProperties', 'charPr']])
+    assert.strictEqual(+header.match(new RegExp('<hh:' + k + ' itemCnt="(\\d+)"'))[1], (header.match(new RegExp('<hh:' + v + ' id=', 'g')) || []).length, k + ' count');
+  console.log('수업 자료 파일 checks passed');
+})().catch(e => { console.error(e); process.exit(1); });
