@@ -113,13 +113,17 @@ function findT(xml, want) {
 }
 const tText = (s, fw) => '<hp:t>' + (fw ? xmlEsc(s).replace(/ /g, '<hp:fwSpace/>') : xmlEsc(s)) + '</hp:t>';
 
-// Finds the parts of a finished 수업용 자료: 앞부분 (cover, 본문 1 title, English, 해석 title, 해석), then 한 줄 해석 (cover, 본문 1 again, lines).
+// Finds the parts of a finished 수업용 자료: 앞부분 (cover, first title, English, 해석 title, 해석), then 한 줄 해석 (cover, first title again, lines).
+// Titles can be anything (본문 1, 14-E, 프린트 1번): the first title is the line above the first English paragraph.
 function readTemplate(files) {
   const sec = files['Contents/section0.xml'] && dec(files['Contents/section0.xml']);
   if (!sec) throw new Error('한글 파일 안에 본문(section0)이 없어요.');
-  const ps = topParas(sec), isTitle = p => !p.shape && /^본문\s*\d+$/.test(p.text);
-  const t1 = ps.findIndex(isTitle), t2 = ps.findIndex((p, i) => i > t1 && isTitle(p) && p.text === ps[t1].text);
-  if (t1 < 0 || t2 < 0) throw new Error('템플릿에서 "본문 1" 제목을 두 번(앞부분·한 줄 해석) 찾지 못했어요.');
+  const ps = topParas(sec), firstEn = ps.findIndex(p => !p.shape && NUM.test(p.text) && !HANGUL.test(p.text));
+  let t1 = firstEn - 1;
+  while (t1 >= 0 && !ps[t1].text && !ps[t1].shape) t1--;
+  if (firstEn < 0 || t1 < 0 || ps[t1].shape) throw new Error('템플릿에서 첫 영어 문단(➊…)과 그 위의 제목 줄을 찾지 못했어요.');
+  const t2 = ps.findIndex((p, i) => i > firstEn && !p.shape && p.text === ps[t1].text);
+  if (t2 < 0) throw new Error(`템플릿의 한 줄 해석 부분에서 첫 제목 "${ps[t1].text}"을(를) 다시 찾지 못했어요.`);
   const v1 = ps.slice(t1, t2), v2 = ps.slice(t2 + 1);
   const isKo = p => NUM.test(p.text) && HANGUL.test(p.text);
   const en = v1.find(p => NUM.test(p.text) && !HANGUL.test(p.text)), ko = v1.find(isKo);
@@ -127,7 +131,7 @@ function readTemplate(files) {
   const line = v2.find(p => /[A-Za-z]/.test(p.text) && HANGUL.test(p.text));
   if (!en || !ko || !head || !line) throw new Error('템플릿에서 ' + [!en && '영어 문단', !ko && '해석 문단', !head && '"해석" 제목', !line && '한 줄 해석 문장'].filter(Boolean).join(', ') + '을(를) 찾지 못했어요.');
   const top = ps[t1 - 1] && !ps[t1 - 1].text && !ps[t1 - 1].shape ? setNum(ps[t1 - 1].xml, null) : null;
-  if (!top) throw new Error('템플릿에서 "본문 1" 위의 빈 줄(바탕글)을 찾지 못했어요.');
+  if (!top) throw new Error(`템플릿에서 첫 제목 "${ps[t1].text}" 위의 빈 줄(바탕글)을 찾지 못했어요.`);
   const header = dec(files['Contents/header.xml']);
   const cover = fitInfo(sec, findT(sec.slice(0, ps[t1].start), t => t && !/^ver\b/i.test(t)), header);
   const li = ps.indexOf(line), lastKo = t1 + v1.map(isKo).lastIndexOf(true);

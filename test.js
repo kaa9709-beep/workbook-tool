@@ -261,9 +261,11 @@ assert(r.notes.some(n => n.key === koKey && n.off), 'a manual join stays listed 
 seedTool.onToggle(noKey, true); seedTool.onToggle(koKey, true);
 assert.deepStrictEqual({ ...seedTool.OVR }, {}, 'back to default = nothing saved');
 
-// Titles: only lines starting with ■; wrapped PDF lines and a # in a passage are not titles
-assert(['■ 본문 1', '■14-E', '■ Into a New World'].every(seedTool.isSeedTitle));
-assert(!['본문 1', 'structures', 'Iron Man 2', '#1', '# 본문 2'].some(seedTool.isSeedTitle));
+// Titles: ■ lines, or a label alone on its line (본문 1, 프린트 5번, 14-E, 17-2); wrapped PDF lines and a # in a passage are not titles
+assert(['■ 본문 1', '■14-E', '■ Into a New World', '본문 1', '본문7', '프린트 5번', '14-E', '17-2', 'Lesson 3'].every(seedTool.isSeedTitle));
+assert(!['structures', 'Iron Man 2', '#1', '# 본문 2', 'in 12', 'in 1969', 'Earle in 1979', '1935년 뉴저지에서', '많은', 'Into a New World', '2009'].some(seedTool.isSeedTitle));
+r = seedTool.build('num', '14-E\nIt is.\n그렇다.\n프린트 1번\nIt was.\n그랬다.');
+assert.deepStrictEqual(lines(r.q).map(l => l.replace(/ /g, ' ')), ['14-E', '➊ It is.', '➊ 그렇다.', '프린트 1번', '➊ It was.', '➊ 그랬다.']);
 // More than 20 sentences: warned, (21) after ⓴
 r = seedTool.build('num', '■ 본문 9\n' + Array.from({ length: 21 }, (_, i) => `Line ${i + 1} ends.`).join(' ') + '\n해석.');
 assert(r.q.includes('⓴ Line 20') && r.q.includes('(21) Line 21') && r.warns.some(w => w.includes('21번부터')));
@@ -380,5 +382,14 @@ else (async () => {
   assert.deepStrictEqual([head(lineIds[0]), head(lineIds[3]), head(lineIds[12])], ['1 0^1.', '1 0^1.', '10 ^1.']);
   for (const [k, v] of [['numberings', 'numbering'], ['paraProperties', 'paraPr'], ['charProperties', 'charPr']])
     assert.strictEqual(+header.match(new RegExp('<hh:' + k + ' itemCnt="(\\d+)"'))[1], (header.match(new RegExp('<hh:' + v + ' id=', 'g')) || []).length, k + ' count');
+  // Titles are not always "본문 N": a template with 14-1, 14-2, … and input titled 14-E / 프린트 1번
+  const renamed = Object.assign({}, files);
+  const sec0 = dec(files['Contents/section0.xml']), sec14 = sec0.replace(/<hp:t>본문(?: |<hp:fwSpace\/>)(\d+)<\/hp:t>/g, '<hp:t>14-$1</hp:t>');
+  assert(sec14 !== sec0 && !/<hp:t>본문(?: |<hp:fwSpace\/>)\d/.test(sec14));
+  renamed['Contents/section0.xml'] = new TextEncoder().encode(sec14);
+  assert.strictEqual(fileTool.readTemplate(renamed).cover.text, '영어 2 (YBM 박준언) 4과');
+  const sec2 = dec((await fileTool.unzip(fileTool.makeFile(renamed, seed.replace('본문 1', '14-E').replace('본문 2', '프린트 1번'), {})))['Contents/section0.xml']);
+  assert.strictEqual((sec2.match(/<hp:t>14-E<\/hp:t>/g) || []).length, 2, 'title in 좌본문 우해석 and 한 줄 해석');
+  assert.strictEqual((sec2.match(/<hp:t>프린트 1번<\/hp:t>/g) || []).length, 2);
   console.log('수업 자료 파일 checks passed');
 })().catch(e => { console.error(e); process.exit(1); });
