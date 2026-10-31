@@ -267,6 +267,20 @@ assert(!['본문 1', 'structures', 'Iron Man 2', '#1', '# 본문 2'].some(seedTo
 // More than 20 sentences: warned, (21) after ⓴
 r = seedTool.build('num', '■ 본문 9\n' + Array.from({ length: 21 }, (_, i) => `Line ${i + 1} ends.`).join(' ') + '\n해석.');
 assert(r.q.includes('⓴ Line 20') && r.q.includes('(21) Line 21') && r.warns.some(w => w.includes('21번부터')));
+// 한글 wrapped mid-word has no trailing space ("전⏎체적" → 전체적), between words it does; * lines are footnotes
+const wrapIn = '■ 본문 2\nA change in the \nfood supply is a catastrophe. \nIt hurts.\n* catastrophe: 재앙  **supply: 공급\n' +
+  '식량 공급의 변화는 전\n체적인 재앙이다. 그것은 \n아프게 한다.';
+r = seedTool.build('plain', wrapIn);
+assert.deepStrictEqual(lines(r.q), ['본문 2', 'A change in the food supply is a catastrophe. It hurts.',
+  '* catastrophe: 재앙 **supply: 공급', '식량 공급의 변화는 전체적인 재앙이다. 그것은 아프게 한다.']);
+assert.deepStrictEqual([...r.warns], []);
+assert.strictEqual(lines(seedTool.build('num', wrapIn).q)[2], '* catastrophe: 재앙 **supply: 공급');
+r = seedTool.build('line', wrapIn);
+assert.deepStrictEqual(lines(r.q), ['본문 2', 'A change in the food supply is a catastrophe.', '식량 공급의 변화는 전체적인 재앙이다.',
+  'It hurts.', '그것은 아프게 한다.'], '한 줄 씨드 drops footnotes');
+assert.strictEqual((r.q.match(/<p /g) || []).length - 1, 2, '한 줄 씨드: one paragraph per English + 해석 pair');
+// No trailing spaces anywhere (other PDF viewers): 한글 line breaks stay spaces, as before
+assert(lines(seedTool.build('plain', '■ 3\nIt is.\n잘 알려진\n규칙이다.').q)[2] === '잘 알려진 규칙이다.');
 // Page example: no warnings
 assert.deepStrictEqual([...seedTool.build("num", seedTool.EXAMPLE).warns], []);
 console.log('씨드 checks passed');
