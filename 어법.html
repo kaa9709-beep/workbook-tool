@@ -13,6 +13,7 @@
   <a href="어법.html" aria-current="page">어법</a>
   <a href="영작.html">영작</a>
   <a href="씨드.html">씨드</a>
+  <a href="수업.html">수업용 자료</a>
 </nav>
 <header>
   <h1>어법 워크북</h1>
@@ -53,65 +54,9 @@ const HALF = ' ';
 // "(셋 다 체크해야 함)": how many right options, in Korean.
 const KNUM = ['', '하나', '둘', '셋', '넷', '다섯', '여섯', '일곱', '여덟', '아홉', '열'];
 
-// Base forms of common verbs (plus every base in IRREG): a suffix-stripping candidate counts only if it is listed here.
-const VERBS = new Set((
-  'abandon abolish absorb abuse accept access accompany accomplish accumulate accuse achieve acknowledge acquire act adapt add address adjust admire admit adopt adore advance advertise advise advocate affect afford age agree aid aim alarm alert allocate allow alter amaze amuse analyze announce annoy answer anticipate apologize appeal appear applaud apply appoint appreciate approach approve argue arrange arrest arrive ask assemble assert assess assign assist associate assume assure attach attack attain attempt attend attract attribute avoid await award ' +
-  'bake balance ban bang bark base bathe battle beg behave believe belong benefit blame blend bless blink block board boast boil bomb book boost borrow bother bounce bow box brake breathe brush bubble budget bump burn burst bury buzz ' +
-  'calculate call calm camp campaign cancel capture care carry carve cast cause celebrate challenge change charge charm chase chat cheat check cheer chew chop circle cite claim clap clarify classify clean clear click climb close coach collaborate collapse collect colonize combine comfort command comment commit communicate compare compel compensate compete compile complain complete comply compose comprehend compromise conceal concede conceive concentrate concern conclude condemn conduct confess confide confine confirm conflict conform confront confuse congratulate connect conquer consent conserve consider consist console constitute construct consult consume contact contain contaminate contemplate contend continue contract contradict contrast contribute control convert convey convict convince cook cooperate coordinate cope copy correct correspond cost cough count cover crack crash crawl create credit criticize cross crowd cry cultivate cure curse cut cycle ' +
-  'damage dance dare date debate decay deceive decide declare decline decorate decrease dedicate deepen defeat defend define delay delete delight deliver demand demonstrate deny depart depend depict deposit deprive derive descend describe deserve design designate desire despise destroy detach detect deter determine develop devise devote diagnose dictate die differ digest diminish dine dip direct disagree disappear disappoint discard discharge discipline disclose discourage discover discriminate discuss disguise dislike dismiss display dispose dispute disrupt dissolve distinguish distort distract distribute disturb dive divide document dominate donate double doubt download drag drain dread dress drift drill drip drop drown dry dump dwell ' +
-  'earn ease echo edit educate elaborate elect eliminate embarrass embrace emerge emit emphasize employ empower empty enable enclose encounter encourage end endanger endure enforce engage enhance enjoy enlarge enrich enroll ensure enter entertain entitle envy equip erase erupt escape establish estimate evaluate evaporate evolve exaggerate examine exceed excel exchange excite exclaim exclude excuse execute exercise exhaust exhibit exist exit expand expect expel experience experiment explain explode exploit explore export expose express extend extract ' +
-  'face facilitate fade fail faint fancy fascinate fasten favor fear feature fetch file fill film filter finance fine finish fire fish fit fix flash flatter float flood flourish flow focus fold follow fool force forecast form formulate foster found frame free frighten frown frustrate fry fuel fulfill function fund furnish ' +
-  'gain gather gaze generate gesture gift giggle glance glare glide glimpse glow glue govern grab grade graduate grant grasp greet grieve grin grip groan guarantee guard guess guide ' +
-  'halt hammer handle happen harm harvest hate haunt head heal heap heat help hesitate hike hint hire honor hook hop hope host house hug hum hunt hurry hurt ' +
-  'identify ignore illustrate imagine imitate immigrate impact implement imply import impose impress imprison improve include incorporate increase indicate induce indulge infect infer influence inform inhabit inherit inhibit initiate injure inquire insert insist inspect inspire install instruct insult insure integrate intend interact interest interfere interpret interrupt interview introduce invade invent invest investigate invite involve iron isolate issue ' +
-  'jam join joke judge jump justify kick kill kiss knit knock ' +
-  'label lack land last laugh launch lay lean lease lecture lessen let level license lick lie lift like limit line link list listen live load loan locate lock long look loosen love lower ' +
-  'maintain manage manipulate manufacture march mark market marry master match matter mature maximize measure meditate melt memorize mention merge migrate mimic mind minimize miss mix moan mock model modify monitor motivate mount mourn move multiply murder ' +
-  'nail name narrow navigate need neglect negotiate nod note notice notify nourish number nurse nurture ' +
-  'obey object oblige observe obtain occupy occur offend offer omit open operate oppose opt order organize originate outline overlook owe own ' +
-  'pack paint pant park participate pass paste pat pause pave peel perceive perform permit persist persuade phone photograph pick picture pile pin place plan plant play plead please pledge plot plow plug plunge point poison polish pollute ponder pop pose possess post postpone pour practice praise pray preach precede predict prefer prepare prescribe present preserve press presume pretend prevail prevent print prioritize proceed process proclaim produce profit program progress prohibit project prolong promise promote prompt pronounce propose prosper protect protest provide provoke publish pull pump punch punish purchase pursue push put puzzle ' +
-  'qualify question queue quit quote ' +
-  'race rain raise range rank rate reach react read realize reason reassure rebel recall receive recite recognize recommend reconcile record recover recruit recycle reduce refer reflect reform refresh refuse regain regard register regret regulate rehearse reign reinforce reject rejoice relate relax release relieve rely remain remark remedy remember remind remove render renew rent repair repeat replace reply report represent reproduce request require rescue research resemble resent reserve reside resign resist resolve respect respond rest restore restrict result resume retain retire retreat retrieve return reveal reverse review revise revive revolve reward rinse rip risk roar roast rob rock roll rot rotate row rub ruin rule rush ' +
-  'sacrifice sail salute sample satisfy save scan scare scatter schedule scold score scratch scream screen search seat secure seem seize select sense separate serve set settle shape share shave shelter shift shiver shock shop shout shove shrug shut sigh sign signal simplify sip situate skate sketch ski skip slam slap slice slip smash smell smile smoke snap sneeze sniff soak sob solve sort sound spare spark spell spit splash split spoil sponsor spot spray spread squeeze stab stabilize stack stain stamp stare start starve state stay steer step stimulate stir stitch stop store stress stretch strip stroke struggle study stuff stumble submit substitute succeed suck suffer suggest suit summarize supervise supply support suppose suppress surf surge surprise surrender surround survey survive suspect suspend sustain swallow sway sweat switch symbolize sympathize ' +
-  'tackle talk tap target taste tax tease telephone tempt tend terrify test thank thrill thrive tick tickle tie tighten tip tire tolerate top toss total touch tour trace track trade train transfer transform translate transmit transport trap travel treat tremble trigger trim trip triumph trouble trust try tumble turn twist type ' +
-  'underline undo unfold unite unlock update upgrade upload upset urge use utilize vacuum value vanish vary venture verify view violate visit visualize volunteer vote ' +
-  'wade wait walk wander want warm warn wash waste watch water wave weaken wed weigh welcome wet whisper whistle widen wipe wish witness wonder work worry worship wrap wrestle wrinkle yawn yell yield zoom'
-).split(' ').concat(Object.values(IRREG)));
-const BE = new Set('am is are was were been being be'.split(' ')), HAVE = new Set('has had having have'.split(' ')), DO = new Set('does did doing do'.split(' '));
-// Verb forms that only 어법 needs (the 어휘 list leaves them out because they have a second meaning there).
-const EXTRA = { born: 'bear', borne: 'bear', saw: 'see', left: 'leave', rose: 'rise', ground: 'grind', bit: 'bite' };
-// Forms that are a verb of their own as well: the first is used, both are named in a warning.
-const AMBIG = { found: ['find', 'found'], lay: ['lie', 'lay'], wound: ['wind', 'wound'], bore: ['bear', 'bore'], bound: ['bind', 'bound'] };
 // Words skipped when looking for the main verb of an answer ("find out" → find).
 const PARTICLES = new Set('out up down off on in away back over about around through along for to by with of from into onto not never always also just even still already ever really'.split(' '));
 
-// One verb form → { base, sure, alts }. sure is false when the base is a guess (not in VERBS) or ambiguous.
-function lemma(word) {
-  const w = word.toLowerCase();
-  if (BE.has(w)) return { base: 'be', sure: true };
-  if (HAVE.has(w)) return { base: 'have', sure: true };
-  if (DO.has(w)) return { base: 'do', sure: true };
-  if (AMBIG[w]) return { base: AMBIG[w][0], sure: false, alts: AMBIG[w] };
-  if (IRREG[w] || EXTRA[w]) return { base: IRREG[w] || EXTRA[w], sure: true };
-  if (VERBS.has(w)) return { base: w, sure: true };
-  const cvc = s => /^[^aeiouy]*[aeiou][^aeiouwxy]$/.test(s); // one-syllable "tap": its -ed form would double, so "taped" is tape
-  const dbl = s => /([^aeioulsfz])\1$/.test(s) ? s.slice(0, -1) : null; // "stopp" → stop, but "fill" stays
-  let cands = [], guess = null;
-  if (/ed$/.test(w)) {
-    const s = w.slice(0, -2);
-    cands = [w.slice(0, -1), /ied$/.test(w) ? w.slice(0, -3) + 'y' : null, dbl(s), cvc(s) ? null : s];
-    guess = dbl(s) || (cvc(s) || /([cgvuz]|[bcdfgkpstz]l|th|at)$/.test(s) ? s + 'e' : s);
-  } else if (/ing$/.test(w)) {
-    const s = w.slice(0, -3);
-    cands = [/ying$/.test(w) ? s.slice(0, -1) + 'ie' : null, s + 'e', dbl(s), cvc(s) ? null : s];
-    guess = dbl(s) || (cvc(s) || /([cgvuz]|[bcdfgkpstz]l|th|at)$/.test(s) ? s + 'e' : s);
-  } else if (/s$/.test(w)) {
-    cands = [w.slice(0, -1), /es$/.test(w) ? w.slice(0, -2) : null, /ies$/.test(w) ? w.slice(0, -3) + 'y' : null];
-    guess = /ies$/.test(w) ? w.slice(0, -3) + 'y' : /(s|x|z|ch|sh)es$/.test(w) ? w.slice(0, -2) : w.slice(0, -1);
-  } else return { base: w, sure: true }; // no ending: already a base form
-  const hit = cands.find(c => c && VERBS.has(c));
-  return hit ? { base: hit, sure: true } : { base: guess, sure: false };
-}
 
 // "to be protected (또는 protection)" → the base of its main verb: last word that is not a particle, first alternative only.
 function baseOf(answer) {

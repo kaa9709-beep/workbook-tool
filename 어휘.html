@@ -13,6 +13,7 @@
   <a href="어법.html">어법</a>
   <a href="영작.html">영작</a>
   <a href="씨드.html">씨드</a>
+  <a href="수업.html">수업용 자료</a>
 </nav>
 <header>
   <h1>어휘 워크북</h1>
@@ -49,14 +50,6 @@
 </main>
 <script src="common.js"></script>
 <script>
-function blankWords(text) {
-  return text.trim().split(/\s+/).map(w => {
-    const m = w.match(/^\((.+?)\)(.*)$/);
-    return m ? esc(m[1]) + line_(m[2].length) : line_(w.length);
-  }).join(' ');
-}
-const plain = s => s.replace(/^\s*\+/, '').replace(/\((.+?)\)/g, '$1').trim();
-
 // Words too common to count as a repeated 어휘.
 const SKIP = new Set('a an the be is are was were been being am of to in on at by for with from into and or but as that this these those it its they them their he she his her we us our you your i me my not no do does did have has had will would can could should may might must so than then there here which who whom whose what when where why how if also very just'.split(' '));
 // Look like a suffixed form but are separate words (news ≠ new, hardly ≠ hard).
@@ -126,26 +119,7 @@ function build(mode, text) {
   const notes = markRepeats(secs);
   const q = [], a = [];
 
-  if (mode === 'sentence') {
-    for (const s of secs) {
-      const sents = s.paras.flat().filter(hasBlank);
-      if (!sents.length) continue;
-      let n = 0; // numbering restarts in each 본문
-      title(q, s.title); title(a, s.title);
-      for (const st of sents) {
-        const answers = []; // [number, [bodies]]; '[+...]' joins the previous blank in the same sentence
-        const html = esc(st.en).replace(BRACKET, (_, b) => {
-          const body = b.trim().replace(/^\+/, '');
-          if (b.trim().startsWith('+') && answers.length) { answers[answers.length - 1][1].push(body); return blankWords(body); }
-          answers.push([++n, [body]]);
-          return `${supNum(n)}${blankWords(body)}`;
-        });
-        q.push(`<p style="${P}">${html}</p>`);
-        q.push(`<p style="${KO}text-align:right;">${esc(st.ko)}</p>`);
-        for (const [k, bodies] of answers) a.push(`<p style="${P}">${k}) ${esc(bodies.join(' / '))}</p>`);
-      }
-    }
-  }
+  if (mode === 'sentence') sentenceBlanks(secs, q, a);
 
   if (mode === 'paragraph') {
     // Each 본문 twice: with 해석, then without.
@@ -166,10 +140,7 @@ function build(mode, text) {
   return { q: q.join(''), a: a.join(''), notes, notesTitle: `자동 처리된 중복 어휘 ${notes.length}개` };
 }
 
-// Self-written example (the site is public, so no textbook passages here).
-const EXAMPLE = `본문 1
-Last summer, Mina [visited] an aquarium with her family and was [amazed by] the [colorful] fish. She [realized] that not only [is] the ocean [+full of] life, but it also needs [protection] from the people who visit it. Her brother took many pictures there.
-지난여름 미나는 가족과 함께 수족관을 방문했고 형형색색의 물고기에 놀랐다. 그녀는 바다가 생명으로 가득할 뿐만 아니라 그곳을 찾는 사람들로부터 보호받아야 한다는 것을 깨달았다. 그녀의 남동생은 그곳에서 사진을 많이 찍었다.`;
+const EXAMPLE = VOCAB_EXAMPLE;
 
 if (typeof document !== 'undefined') {
   const box = document.getElementById('myForms');

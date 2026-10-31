@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>수업용 자료</title>
+<link rel="stylesheet" href="common.css">
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="index.html">워크북 툴</a>
+  <a href="어휘.html">어휘</a>
+  <a href="어법.html">어법</a>
+  <a href="영작.html">영작</a>
+  <a href="씨드.html">씨드</a>
+  <a href="수업.html" aria-current="page">수업용 자료</a>
+</nav>
+<header>
+  <h1>수업용 자료</h1>
+  <div class="modes" id="modes">
+    <label><input type="radio" name="mode" value="example" checked> 예문장</label>
+    <label><input type="radio" name="mode" value="exblank"> 예문장 빈칸</label>
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <h2>전처리 지문 <button id="example">예시 넣기</button></h2>
+    <textarea id="input" spellcheck="false" placeholder="어휘 워크북과 같은 전처리 지문을 붙여넣으세요. 어휘 탭에 넣은 지문이 여기에도 그대로 들어옵니다."></textarea>
+    <div id="warnings"></div>
+    <details>
+      <summary>입력 규칙 보기</summary>
+      <p><b>어휘 탭과 같은 전처리</b>를 씁니다. 여기와 어휘 탭은 입력창을 함께 써서, 한쪽에 붙여넣으면 다른 쪽에도 들어 있습니다.</p>
+      <p><b>예문장</b> — <code>[ ]</code>로 표시한 어휘가 문장마다 <code>원형:</code> 목록으로 나오고, 본문에서는 <code>【 】</code>로 표시됩니다. 품사·뜻은 한글에서 직접 채우세요. 원형은 툴이 추측한 것이라 틀릴 수 있습니다(예: 형용사로 쓴 thrilled → thrill).</p>
+      <p><b>예문장 빈칸</b> — 문장 빈칸과 같지만 중복 어휘(첫 글자 힌트 빈칸)를 잡지 않습니다.</p>
+      <p><code>[+full of]</code>는 앞 어휘와 한 항목으로 묶입니다 (<code>[is] the ocean [+full of]</code> → <code>be full of ~:</code>). 빈칸 없는 문장은 빠집니다.</p>
+    </details>
+    <h2 style="margin-top:14px">AI 뜻 채우기 <span id="fillMsg" class="ok"></span></h2>
+    <p class="note">예문장 어휘에 <code>품사. 뜻</code>을 예문·해석에 맞춰 채웁니다. AI가 쓴 것이라 꼭 검수하세요. API 키는 이 컴퓨터의 브라우저에만 저장됩니다.</p>
+    <input type="password" id="apiKey" placeholder="API 키 (sk-ant-…)" autocomplete="off" style="width:60%">
+    <button id="fill">뜻 채우기</button>
+  </section>
+  <section class="panel">
+    <h2>문제 <span><span class="ok" id="okQ"></span> <button data-copy="outQ">복사</button></span></h2>
+    <div class="out" id="outQ"></div>
+    <h2 style="margin-top:14px">정답 <span><span class="ok" id="okA"></span> <button data-copy="outA">복사</button></span></h2>
+    <div class="out" id="outA"></div>
+  </section>
+</main>
+<script src="common.js"></script>
+<script>
+// A trailing one of these gets " ~" (belong to ~); herself etc. become oneself.
+const PREP = new Set('to in of with by for on as from about at into onto than over through against toward towards upon within without'.split(' '));
+const SELF = new Set('myself yourself himself herself itself ourselves yourselves themselves'.split(' '));
+// Kept as they are: comparatives and plurals with their own meaning (further: adv., media, people), words ending in s that are not plurals.
+const KEEP = new Set('better best worse worst farther further media data people ground always perhaps sometimes nowadays afterwards besides species series means news'.split(' '));
+// -ed/-ing forms usually taught as adjectives (thrilled: a.), kept even though the verb is in the dictionary.
+const ADJ = new Set(('thrilled excited exciting interested interesting bored boring surprised surprising amazed amazing astonished astonishing ' +
+  'shocked shocking satisfied satisfying disappointed disappointing embarrassed embarrassing frightened frightening scared terrified ' +
+  'terrifying worried confused confusing tired tiring pleased pleasing delighted relieved annoyed annoying frustrated frustrating ' +
+  'depressed depressing overwhelmed overwhelming fascinating moved moving touched touching puzzled puzzling alarmed alarming ' +
+  'endangered distinguished situated glowing devoted dedicated determined experienced skilled talented complicated sophisticated ' +
+  'advanced limited related qualified detailed organized crowded isolated motivated concerned involved promising rewarding ' +
+  'demanding challenging lasting leading missing outstanding existing remaining surrounding growing increasing rising living').split(' '));
+
+// The 원형 of one word: be-forms → be, verbs (from the dictionary) → base, plurals → singular.
+// In a phrase only the first word is a verb form (belonged to, depends on); later words only lose a plural (fossil fuels, global warming).
+// -ed/-ing words not in the verb dictionary stay (unattached: a.); returns { word, guess } where guess marks a 원형 to check.
+function headword(w, afterBe, later) {
+  const lw = w.toLowerCase();
+  if (BE.has(lw)) return { word: 'be' };
+  if (SELF.has(lw)) return { word: 'oneself' };
+  if (PREP.has(lw) || KEEP.has(lw) || /(ss|us|is|ics)$/.test(lw) || !/^[a-z]+$/.test(lw)) return { word: w };
+  if (/(ed|en|ing)$/.test(lw) && (afterBe || later || ADJ.has(lw))) return { word: w }; // be fascinated by, global warming, thrilled
+  const r = lemma(lw);
+  if (r.base === lw) return { word: w };
+  if (r.alts) return { word: r.base, guess: true };
+  if (!r.sure && /(ed|ing)$/.test(lw)) return { word: w };
+  return { word: r.base };
+}
+
+// "were fascinated by" → "be fascinated by ~", "is / full of" → "be full of ~".
+function entry(bodies, first) {
+  const words = bodies.join(' ').split(/\s+/).map(x => x.replace(/^[^A-Za-z]+|[^A-Za-z'-]+$/g, '')).filter(Boolean);
+  const guesses = [];
+  const out = words.map((w, i) => {
+    const h = headword(w, i > 0 && BE.has(words[i - 1].toLowerCase()), i > 0);
+    if (h.guess) guesses.push(`${w} → ${h.word}`);
+    return h.word;
+  });
+  if (first && out.length && /^[A-Z][a-z]/.test(out[0])) out[0] = out[0][0].toLowerCase() + out[0].slice(1); // sentence-initial capital
+  if (out.length > 1 && PREP.has(out[out.length - 1].toLowerCase())) out.push('~');
+  return { text: out.join(' '), guesses };
+}
+
+// AI 뜻 ("v. 탐험하다") per 원형 and sentence (the same word can mean something else elsewhere), kept on this computer.
+let MEAN = {};
+try { MEAN = JSON.parse(localStorage.getItem('class-meanings')) || {}; } catch (e) {}
+const meanKey = (word, en) => word + '\n' + en;
+
+function build(mode, text) {
+  const secs = parse(text), q = [], a = [], notes = [], fill = [];
+  if (mode === 'exblank') sentenceBlanks(secs, q, a); // no repeat check: that is the 문장 빈칸 difference
+  if (mode === 'example') {
+    for (const s of secs) {
+      const sents = s.paras.flat().filter(hasBlank);
+      if (!sents.length) continue;
+      title(q, s.title);
+      for (const st of sents) {
+        const items = []; // [bodies, starts the sentence]
+        const html = esc(st.en).replace(BRACKET, (m, b, at, all) => {
+          const body = plain(b);
+          if (b.trim().startsWith('+') && items.length) items[items.length - 1][0].push(body);
+          else items.push([[body], /^[^A-Za-z]*$/.test(all.slice(0, at))]);
+          return `【${esc(body)}】`;
+        });
+        const list = [];
+        for (const [bodies, first] of items) {
+          const e = entry(bodies, first);
+          if (!list.includes(e.text)) list.push(e.text);
+          e.guesses.forEach(g => notes.push(`${s.title || '본문'}: ${g} (두 뜻이 있는 형태 — 확인하세요)`));
+        }
+        // List, sentence and 해석 in one paragraph: separate paragraphs paste into 한글 with empty lines between them.
+        list.forEach(x => fill.push({ word: x, en: st.en, ko: st.ko }));
+        const line = x => esc(x) + ':' + (MEAN[meanKey(x, st.en)] ? ' ' + esc(MEAN[meanKey(x, st.en)]) : '');
+        q.push(`<p style="${P}">${list.map(line).concat(html, esc(st.ko)).join('<br>')}</p>`);
+      }
+    }
+  }
+  return { q: q.join(''), a: a.join(''), notes, notesTitle: '원형 확인', fill };
+}
+
+// One request for all the words; the key goes only from this browser to Anthropic.
+async function askMeanings(todo, key) {
+  const prompt = `고등학생 영어 수업 자료의 어휘 목록입니다. 각 항목의 word가 en 문장에서 쓰인 뜻을, ko 해석을 참고해 "품사. 뜻" 형식으로 써 주세요.
+- 품사: v. n. a. adv. prep. conj. 중 하나. 구문에도 붙입니다 (be fascinated by ~ → v., situated in ~ → a., along with ~ → prep.).
+- 뜻: 이 문장에 맞는 뜻 1~2개를 쉼표로 구분. word에 ~가 있으면 뜻에도 ~를 넣습니다.
+- 예: explore → "v. 탐험하다, 탐구하다" / remarkable → "a. 놀라운" / deep ocean → "n. 심해" / be afraid of ~ → "v. ~을 두려워하다"
+- gloss에는 word를 다시 쓰지 말고 "품사. 뜻"만 씁니다.
+
+${JSON.stringify(todo.map((t, id) => ({ id, word: t.word, en: t.en, ko: t.ko })))}`;
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json', 'x-api-key': key, 'anthropic-version': '2026-10-21',
+      'anthropic-dangerous-direct-browser-access': 'true', 'anthropic-beta': 'server-side-fallback-2026-07-01',
+    },
+    body: JSON.stringify({
+      model: 'claude-opus-5-5', max_tokens: 16000, fallbacks: 'default',
+      output_config: {
+        effort: 'medium',
+        format: { type: 'json_schema', schema: {
+          type: 'object', additionalProperties: false, required: ['items'],
+          properties: { items: { type: 'array', items: {
+            type: 'object', additionalProperties: false, required: ['id', 'gloss'],
+            properties: { id: { type: 'integer' }, gloss: { type: 'string' } } } } } } },
+      },
+      messages: [{ role: 'user', content: prompt }],
+    }),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(res.status === 401 ? 'API 키가 맞지 않아요.' : (data.error && data.error.message) || res.status);
+  if (data.stop_reason === 'refusal') throw new Error('AI가 요청을 거절했어요.');
+  if (data.stop_reason === 'max_tokens') throw new Error('어휘가 너무 많아요. 본문을 나눠서 해 보세요.');
+  return JSON.parse(data.content.find(b => b.type === 'text').text).items;
+}
+
+const EXAMPLE = VOCAB_EXAMPLE;
+
+if (typeof document !== 'undefined') {
+  const render = setupPage(build, EXAMPLE, 'class', null, 'vocab');
+  const $ = id => document.getElementById(id), msg = t => { $('fillMsg').textContent = t; };
+  try { $('apiKey').value = localStorage.getItem('claude-key') || ''; } catch (e) {}
+  $('fill').addEventListener('click', async () => {
+    const key = $('apiKey').value.trim();
+    if (!key) return msg('API 키를 먼저 넣어 주세요.');
+    try { localStorage.setItem('claude-key', key); } catch (e) {}
+    const todo = build('example', $('input').value).fill.filter(t => !MEAN[meanKey(t.word, t.en)]);
+    if (!todo.length) return msg('새로 채울 어휘가 없어요.');
+    $('fill').disabled = true; msg(`${todo.length}개 채우는 중…`);
+    try {
+      const got = await askMeanings(todo, key);
+      got.forEach(g => { const t = todo[g.id]; if (t && g.gloss.trim()) MEAN[meanKey(t.word, t.en)] = g.gloss.trim(); });
+      try { localStorage.setItem('class-meanings', JSON.stringify(MEAN)); } catch (e) {}
+      render(); msg(`${got.length}개 채웠어요. 검수해 주세요.`);
+    } catch (e) { msg('실패: ' + e.message); }
+    $('fill').disabled = false;
+  });
+}
+</script>
+</body>
+</html>

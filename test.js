@@ -284,3 +284,33 @@ assert(lines(seedTool.build('plain', '■ 3\nIt is.\n잘 알려진\n규칙이다
 // Page example: no warnings
 assert.deepStrictEqual([...seedTool.build("num", seedTool.EXAMPLE).warns], []);
 console.log('씨드 checks passed');
+
+// 수업용 자료: 예문장 (원형 list + 【 】) and 예문장 빈칸 (문장 빈칸 without the repeat hints), from the same 어휘 전처리
+const classTool = load('수업.html', 'this.entry=entry;this.EXAMPLE=EXAMPLE;this.MEAN=MEAN;');
+const classIn = `본문 1
+[Exploring] the sea, she [was fascinated by] fish and [committed herself to] [protecting] it, so she explored more.
+바다를 탐험하며 그녀는 물고기에 매료되었고 그것을 지키는 데 전념해서 더 탐험했다.
+Not only [is] the ocean [+full of] life, but it [belongs to] us, and [global warming] and [fossil fuels] [serve as] [threats] to the [endangered] [species].
+바다는 생명으로 가득할 뿐 아니라 우리의 것이며, 지구 온난화와 화석 연료는 멸종 위기 종에 위협이 된다.`;
+r = classTool.build('example', classIn);
+assert.deepStrictEqual(lines(r.q), ['본문 1',
+  'explore:', 'be fascinated by ~:', 'commit oneself to ~:', 'protect:',
+  '【Exploring】 the sea, she 【was fascinated by】 fish and 【committed herself to】 【protecting】 it, so she explored more.',
+  '바다를 탐험하며 그녀는 물고기에 매료되었고 그것을 지키는 데 전념해서 더 탐험했다.',
+  'be full of ~:', 'belong to ~:', 'global warming:', 'fossil fuel:', 'serve as ~:', 'threat:', 'endangered:', 'species:',
+  'Not only 【is】 the ocean 【full of】 life, but it 【belongs to】 us, and 【global warming】 and 【fossil fuels】 【serve as】 【threats】 to the 【endangered】 【species】.',
+  '바다는 생명으로 가득할 뿐 아니라 우리의 것이며, 지구 온난화와 화석 연료는 멸종 위기 종에 위협이 된다.']);
+assert.strictEqual((r.q.match(/<p /g) || []).length, 3, 'title + one paragraph per sentence, so 한글 adds no empty lines inside it');
+assert.strictEqual(r.a, '');
+assert.strictEqual(r.fill.length, 12, 'every listed word goes to AI 뜻 채우기, with its sentence');
+classTool.MEAN[r.fill[0].word + '\n' + r.fill[0].en] = 'v. 탐험하다';
+assert(classTool.build('example', classIn).q.includes('explore: v. 탐험하다<br>be fascinated by ~:<br>'), 'filled 뜻 after the 원형, others stay empty');
+// 예문장 빈칸: "explored" is not caught (that is what 문장 빈칸 does)
+r = classTool.build('exblank', classIn);
+assert.deepStrictEqual(text(r.a).split('\n'), ['본문 1', '1) Exploring', '2) was fascinated by', '3) committed herself to', '4) protecting',
+  '5) is / full of', '6) belongs to', '7) global warming', '8) fossil fuels', '9) serve as', '10) threats', '11) endangered', '12) species']);
+assert(r.q.includes('so she explored more.'));
+assert(vocabTool.build('sentence', classIn).a.includes('(e)xplored'), '문장 빈칸 still catches it');
+assert.strictEqual(classTool.entry(['found'], false).guesses.length, 1, 'two-meaning form is flagged');
+assert.deepStrictEqual([...classTool.build('example', classTool.EXAMPLE).notes], []);
+console.log('수업용 자료 checks passed');
