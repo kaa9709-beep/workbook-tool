@@ -108,21 +108,42 @@ function sentences(line, en) {
 // Title: "# ..." / "본문 1 ..." / any short line with no [ ] and no sentence-ending punctuation ("14-E", "프린트 1번").
 const isTitle = line => /^본문\s*\d/.test(line) || (line.length <= 30 && !/[\[\]]/.test(line) && !/[.!?]["'”’)]*$/.test(line));
 
+// 씨드 번호 O: ➊…⓴, then (21)… followed by a 반 칸. Splits a numbered line into [{ n, s }] with the numbers removed.
+function numberedSentences(line) {
+  const marks = [...line.matchAll(/([➊-➓⓫-⓴]|\(\d+\)(?= ))[\s ]*/g)];
+  if (!marks.length) return null;
+  return marks.map((m, i) => ({ n: m[1], s: line.slice(m.index + m[0].length, i + 1 < marks.length ? marks[i + 1].index : line.length).trim() }));
+}
+
 // A line with 한글 (or starting with "=") is the 해석 of the English line above, even across a blank line;
 // a blank line ends a paragraph. A multi-sentence English line is split into sentences and paired with its 해석 by count.
+// 씨드 번호 O lines (➊ …) are split and paired by their numbers instead, so the 씨드's own sentence choices hold; * notes are skipped.
 function parse(text) {
   const sections = [];
   sections.warns = [];
   let sec = null, para = null, group = null, gpara = null; // group: the sentences of the last English line, in gpara
+  const pool = []; // numbered English sentences (번호 O) still waiting for their 해석, across sub-headings
   const newSec = title => { sec = { title, paras: [] }; para = group = null; sections.push(sec); };
   text.split(/\r?\n/).forEach((raw, i) => {
     const line = raw.trim();
     if (!line) { para = null; return; }
+    if (line.startsWith('*')) return; // 씨드 주석
     if (line.startsWith('#')) return newSec(line.slice(1).trim());
     const hangul = /[가-힣]/.test(line.replace(BRACKET, ''));
+    const seedKo = hangul && pool.some(g => !g.ko) && numberedSentences(line);
+    // After numbered English, a 한글 line without numbers is a heading (해설자:, 소제목), not a 해석
+    if (hangul && !seedKo && !line.startsWith('=') && group && group[0].n) return newSec(line);
     const awaitingKo = group && group.every(g => !g.ko);
-    if (!line.startsWith('=') && !(hangul && awaitingKo) && (isTitle(line) || (hangul && !group))) return newSec(line);
+    if (!line.startsWith('=') && !(hangul && (awaitingKo || seedKo)) && (isTitle(line) || (hangul && !group))) return newSec(line);
     if (!sec) newSec('');
+    if (seedKo) {
+      // 번호 O 해석: each ➊ goes to the latest English ➊ without one — also when the English came in several
+      // paragraphs or a sub-heading came in between
+      const extra = [];
+      seedKo.forEach(x => { const g = pool.slice().reverse().find(g => g.n === x.n && !g.ko); if (g) g.ko = x.s; else extra.push(x.n); });
+      if (extra.length) sections.warns.push(`${i + 1}번째 줄: 영어에 없는 번호 ${extra.join(' ')}의 해석은 넣지 않았어요.`);
+      return;
+    }
     if (line.startsWith('=') || hangul) {
       if (!group) return;
       const ko = line.replace(/^=/, '').trim();
@@ -136,12 +157,18 @@ function parse(text) {
       group = [merged];
       return;
     }
-    const sents = sentences(line, true);
+    const nums = numberedSentences(line), sents = nums ? nums.map(x => x.s) : sentences(line, true);
     if (!para || sents.length > 1 || (group && group.length > 1)) { para = []; sec.paras.push(para); }
-    group = sents.map(en => ({ en, ko: '' }));
+    group = sents.map((en, j) => nums ? { en, ko: '', n: nums[j].n } : { en, ko: '' });
+    if (nums) pool.push(...group.map(g => Object.assign(g, { sec })));
     gpara = para;
     para.push(...group);
   });
+  sections.forEach(s => {
+    const missing = pool.filter(g => g.sec === s && !g.ko).map(g => g.n);
+    if (missing.length) sections.warns.push(`${s.title || '제목 없는 본문'}: 해석이 없는 번호 ${missing.join(' ')}`);
+  });
+  pool.forEach(g => { delete g.sec; });
   return sections;
 }
 

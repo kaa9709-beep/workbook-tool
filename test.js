@@ -315,6 +315,30 @@ assert(r.q.includes('so she explored more.'));
 assert(vocabTool.build('sentence', classIn).a.includes('(e)xplored'), '문장 빈칸 still catches it');
 assert.strictEqual(classTool.entry(['found'], false).guesses.length, 1, 'two-meaning form is flagged');
 assert.deepStrictEqual([...classTool.build('example', classTool.EXAMPLE).notes], []);
+// 씨드 번호 O as 전처리: paired by ➊ numbers (not by counting sentences), numbers dropped, * notes skipped
+const H = ' ';
+const seedNum = `본문 1
+➊${H}[Exploring] the sea, she [was fascinated by] fish and [committed herself to] [protecting] it, so she explored more. ➋${H}Not only [is] the ocean [+full of] life, but it [belongs to] us, and [global warming] and [fossil fuels] [serve as] [threats] to the [endangered] [species].
+* fossil fuel: 화석 연료
+➊${H}바다를 탐험하며 그녀는 물고기에 매료되었고 그것을 지키는 데 전념해서 더 탐험했다. ➋${H}바다는 생명으로 가득할 뿐 아니라 우리의 것이며, 지구 온난화와 화석 연료는 멸종 위기 종에 위협이 된다.`;
+const [ct, ce1, ck1, ce2, ck2] = classIn.split('\n'), plainIn = [ct, ce1 + ' ' + ce2, ck1 + ' ' + ck2].join('\n'); // the same text as 번호 X: one English line, one 해석 line
+for (const mode of ['example', 'exblank']) assert.strictEqual(classTool.build(mode, seedNum).q, classTool.build(mode, plainIn).q, mode + ': 번호 O = 번호 X');
+assert.strictEqual(vocabTool.build('sentence', seedNum).a, vocabTool.build('sentence', plainIn).a);
+assert.deepStrictEqual([...classTool.warnings(seedNum)], []);
+// 4 English sentences, 6 해석 sentences (one English sentence translated as three): fine with numbers
+const uneven = `본문 2
+➊${H}A [b]. ➋${H}C [d]. ➌${H}E [f]. ➍${H}G [h].
+➊${H}가. ➋${H}나. 다. 라. ➌${H}마. ➍${H}바.`;
+assert.deepStrictEqual([...classTool.warnings(uneven)], []);
+assert.deepStrictEqual(lines(classTool.build('example', uneven).q).filter(l => /[가-힣]\./.test(l)), ['가.', '나. 다. 라.', '마.', '바.']);
+assert(classTool.warnings(uneven.replace(`➊${H}가. ➋${H}`, `➋${H}`)).some(w => w.includes('해석이 없는 번호 ➊')));
+// English in two paragraphs, then the 해석 in two: still paired by number
+const twoParas = `본문 3
+➊${H}A [b]. ➋${H}C [d].
+➌${H}E [f].
+➊${H}가. ➋${H}나.
+➌${H}마.`;
+assert.deepStrictEqual(lines(classTool.build('example', twoParas).q).filter(l => /[가-힣]\./.test(l)), ['가.', '나.', '마.']);
 console.log('수업용 자료 checks passed');
 
 // 수업 자료 파일 (자료.html + hwpx.js): 씨드 → 한글 파일
