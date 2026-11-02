@@ -74,3 +74,11 @@ const hwpPara = (proto, runs, pageBreak) => {
   return (pageBreak === undefined ? tag : tag.replace(/pageBreak="\d"/, `pageBreak="${pageBreak ? 1 : 0}"`)) + runs + '</hp:p>';
 };
 const hwpRun = (id, inner) => `<hp:run charPrIDRef="${id}"><hp:t>${inner}</hp:t></hp:run>`;
+
+// 바탕쪽 학원 name, the words before "김진혁 영어" (top of the pages). Templates write it in different ways
+// ("대치하이 영어학원", "남양주 대치하이 영어학원", "압구정 센티움학원"); the tool always writes one of these three.
+const ACADEMIES = ['남양주 대치하이 영어학원', '압구정 센티움학원', '반포 센티움학원'];
+const ACADEMY_RE = /<hp:t>([^<]*(?:대치하이|센티움)[^<]*?)(?= 김진혁 영어)/g;
+const academyName = s => !s ? '' : ACADEMIES.find(a => a === s) || (/반포/.test(s) ? ACADEMIES[2] : /센티움/.test(s) ? ACADEMIES[1] : ACADEMIES[0]);
+const academyOf = xmls => academyName(xmls.map(x => (x.match(new RegExp(ACADEMY_RE.source)) || [])[1]).find(Boolean));
+const putAcademy = (x, name) => name ? x.replace(ACADEMY_RE, '<hp:t>' + xmlEsc(name)) : x;

@@ -51,6 +51,8 @@
   </section>
 </main>
 <script src="common.js"></script>
+<script src="hwpx.js"></script>
+<script src="wbfile.js"></script>
 <script>
 // Words too common to count as a repeated 어휘.
 const SKIP = new Set('a an the be is are was were been being am of to in on at by for with from into and or but as that this these those it its they them their he she his her we us our you your i me my not no do does did have has had will would can could should may might must so than then there here which who whom whose what when where why how if also very just'.split(' '));
@@ -158,6 +160,11 @@ if (typeof document !== 'undefined') {
     on ? RELEASED.delete(key) : RELEASED.add(key);
     try { localStorage.setItem('vocab-released', JSON.stringify([...RELEASED])); } catch (e) {}
   });
+  // 한글 파일: the passages with the repeat blanks marked, the same as the copy output uses.
+  const mode = () => document.querySelector('input[name=mode]:checked').value;
+  const secsNow = () => { const secs = parse(document.getElementById('input').value); markRepeats(secs); return secs; };
+  const panels = [['sentence', '문장 빈칸'], ['paragraph', '문단 빈칸']].map(([k, label]) => setupFilePanel(k, label, secsNow, () => mode() === k));
+  document.getElementById('modes').addEventListener('change', () => panels.forEach(f => f()));
 }
 </script>
 </body>

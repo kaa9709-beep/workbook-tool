@@ -39,8 +39,9 @@
     <p class="note" id="coverInfo"></p>
     <label class="field"><span>바탕쪽 과 제목 (쪽 아래)</span><input type="text" id="lesson"></label>
     <div class="field"><span>바탕쪽 학원 (쪽 위)</span>
-      <label><input type="radio" name="academy" value="대치하이 영어학원"> 대치하이 영어학원</label>
-      <label style="margin-left:14px"><input type="radio" name="academy" value="센티움학원"> 센티움학원</label>
+      <label><input type="radio" name="academy" value="남양주 대치하이 영어학원"> 남양주 대치하이 영어학원</label>
+      <label style="margin-left:14px"><input type="radio" name="academy" value="압구정 센티움학원"> 압구정 센티움학원</label>
+      <label style="margin-left:14px"><input type="radio" name="academy" value="반포 센티움학원"> 반포 센티움학원</label>
     </div>
     <label class="field"><span>바탕쪽 교재 이름 (쪽 위 색 상자 — 길면 글자 크기를 줄여 한 줄에 맞춤)</span><input type="text" id="book"></label>
     <p class="note" id="bookInfo"></p>
@@ -154,8 +155,6 @@ function readTemplate(files) {
 }
 
 // 바탕쪽 parts that change per 교재: 학원 (top of both pages), 교재 이름 (box on both pages), 학교·시험 (even page table).
-const ACADEMIES = ['대치하이 영어학원', '센티움학원'];
-const ACADEMY_RE = new RegExp('<hp:t>(' + ACADEMIES.join('|') + ')(?= 김진혁 영어)', 'g');
 const SCHOOL_RE = /(<hp:t>김진혁 영어\s*<\/hp:t><\/hp:run><hp:run charPrIDRef="\d+"><hp:t>)([\s\S]*?)((?:<hp:fwSpace\/>)*<\/hp:t>)/;
 // The 교재 이름 run in the template's colored box: spaces, the name (= start of the cover title), spaces and a closing "_".
 // The spaces and "_" only kept the name off the box's slanted end; the tool drops them and widens the box's right margin instead.
@@ -204,7 +203,7 @@ const fitSize = (f, xml) => Math.min(f.base, Math.floor(f.avail * 0.98 / textWid
 const MIN_SIZE = { book: 700, cover: 2000 };
 
 function readMasters(xmls, coverText, header) {
-  const academy = xmls.map(x => (x.match(new RegExp(ACADEMY_RE.source)) || [])[1]).find(Boolean);
+  const academy = academyOf(xmls);
   const school = xmls.map(x => x.match(SCHOOL_RE)).find(Boolean);
   let book = null;
   xmls.forEach(x => [...x.matchAll(BOOK_RE)].forEach(m => {
@@ -408,7 +407,7 @@ function makeFile(files, text, o) {
   T.masters.forEach(n => {
     let x = dec(files[n]);
     if (T.lesson && lesson) x = x.split(T.lesson.xml).join(tText(lesson, T.lesson.fw));
-    if (o.academy) x = x.replace(ACADEMY_RE, '<hp:t>' + xmlEsc(o.academy));
+    x = putAcademy(x, o.academy);
     if (o.school) x = x.replace(SCHOOL_RE, (_, a, b, c) => a + xmlEsc(o.school) + c);
     if (bookId !== null) {
       // The name alone, and the box's margins grown by the old padding so it sits where it used to.
@@ -497,7 +496,7 @@ if (typeof document !== 'undefined') {
     a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
   ['input', 'cover', 'lesson', 'book', 'school', ...NUMS].forEach(k => { $(k).value = store('material-' + k) || ''; $(k).addEventListener('input', render); });
-  setAcademy(store('material-academy'));
+  setAcademy(academyName(store('material-academy'))); // an old saved "센티움학원" becomes "압구정 센티움학원"
   document.querySelectorAll('[name=academy]').forEach(r => r.addEventListener('change', render));
   const saved = store('material-template');
   if (saved) useTemplate(fromB64(saved), store('material-template-name'), false); else render();

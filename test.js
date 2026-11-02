@@ -376,7 +376,7 @@ else (async () => {
   const zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
   const files = await fileTool.unzip(fs.readFileSync(tplPath), inflate), T = fileTool.readTemplate(files);
   assert.deepStrictEqual(plain([T.academy, T.school, T.book.name, T.cover.text, T.nums.map(p => p && p.num)]),
-    ['대치하이 영어학원', '다산고 2학년 2학기 중간고사 대비', '영어 2 (YBM 박준언)', '영어 2 (YBM 박준언) 4과', [31, null, 47, 48]]);
+    ['남양주 대치하이 영어학원', '다산고 2학년 2학기 중간고사 대비', '영어 2 (YBM 박준언)', '영어 2 (YBM 박준언) 4과', [31, null, 47, 48]]);
   // the original's own 본문 → only 본문 1 fits one page in 한 줄 해석 (the user added a blank page there by hand)
   const ps = fileTool.topParas(dec(files['Contents/section0.xml']));
   const t1 = ps.findIndex(p => p.text === '본문 1'), t2 = ps.findIndex((p, i) => i > t1 && p.text === '본문 1');
@@ -384,12 +384,12 @@ else (async () => {
   assert.deepStrictEqual(plain(fileTool.pagePlan(T, dec(files["Contents/header.xml"]), original).map(x => x.onePage)), [true, false, false, false, false, false, false]);
 
   const out = await fileTool.unzip(fileTool.makeFile(files, seed + '\n본문 3\n' + [...'➊➋➌➍➎➏➐➑➒➓⓫'].map(n => n + ' Hi.').join(' ') + '\n' + [...'➊➋➌➍➎➏➐➑➒➓⓫'].map(n => n + ' 안녕.').join(' '),
-    { cover: '영어 독해와 작문 (천재 강상구) 3과', lesson: 'Lesson 9. Test', academy: '센티움학원', book: '영어 독해와 작문 (천재 강상구)', school: '시험고 1학년 기말고사 대비', nums: [11, 12, 27, 28] }));
+    { cover: '영어 독해와 작문 (천재 강상구) 3과', lesson: 'Lesson 9. Test', academy: '반포 센티움학원', book: '영어 독해와 작문 (천재 강상구)', school: '시험고 1학년 기말고사 대비', nums: [11, 12, 27, 28] }));
   assert.deepStrictEqual(Object.keys(out), Object.keys(files), 'same parts, same order');
   const sec = dec(out['Contents/section0.xml']), header = dec(out['Contents/header.xml']), masters = dec(out['Contents/masterpage0.xml']) + dec(out['Contents/masterpage1.xml']);
   assert.deepStrictEqual([...sec.matchAll(/<hp:newNum num="(\d+)"/g)].map(m => +m[1]), [11, 12, 27, 28]);
   assert.strictEqual((sec.match(/영어<hp:fwSpace\/>독해와<hp:fwSpace\/>작문/g) || []).length, 2, 'both covers');
-  assert(!/대치하이|다산고|박준언/.test(masters) && masters.includes('센티움학원 김진혁 영어') && masters.includes('시험고 1학년 기말고사 대비') && masters.includes('Lesson 9. Test'));
+  assert(!/대치하이|다산고|박준언/.test(masters) && masters.includes('<hp:t>반포 센티움학원 김진혁 영어') && masters.includes('시험고 1학년 기말고사 대비') && masters.includes('Lesson 9. Test'));
   const bookRun = masters.match(/<hp:run charPrIDRef="(\d+)"><hp:t>영어 독해와 작문 \(천재 강상구\)<\/hp:t>/);
   assert(bookRun && +header.match(new RegExp('<hh:charPr id="' + bookRun[1] + '" height="(\\d+)"'))[1] < 1200, '교재 이름 shrunk to one line');
   assert(/<hp:textMargin left="\d{3,}" right="\d{4,}"/.test(masters.slice(masters.indexOf(bookRun[0]))), 'old padding became box margins');
@@ -416,4 +416,79 @@ else (async () => {
   assert.strictEqual((sec2.match(/<hp:t>14-E<\/hp:t>/g) || []).length, 2, 'title in 좌본문 우해석 and 한 줄 해석');
   assert.strictEqual((sec2.match(/<hp:t>프린트 1번<\/hp:t>/g) || []).length, 2);
   console.log('수업 자료 파일 checks passed');
+})().catch(e => { console.error(e); process.exit(1); });
+
+// 문장 빈칸 파일 (어휘.html + hwpx.js + wbfile.js): template = the finished 문장 빈칸 on this computer (samples/ is not in git)
+const sentPath = __dirname + '/samples/1. 영어 2_YBM 박준언_4과_문장 빈칸.hwpx';
+if (!fs.existsSync(sentPath)) console.log('문장 빈칸 파일: template not here, file checks skipped');
+else (async () => {
+  const S = { TextDecoder, TextEncoder }, zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
+  vm.runInNewContext(common + ['hwpx.js', 'wbfile.js'].map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n') +
+    fs.readFileSync(__dirname + '/어휘.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1] + ';this.markRepeats=markRepeats;this.parse=parse;this.unzip=unzip;this.sentenceFile=sentenceFile;this.readSentenceTemplate=readSentenceTemplate;this.EX=VOCAB_EXAMPLE;', S);
+  const files = await S.unzip(fs.readFileSync(sentPath), inflate), T = S.readSentenceTemplate(files);
+  assert.deepStrictEqual([T.titleId, T.blankId, T.textId, T.koId, T.lesson, T.academy, !!T.noteTitle],
+    ['19', '14', '37', '12', 'Lesson 04. The Guardian of the Blue Heart of the Planet', '남양주 대치하이 영어학원', true]);
+  assert.strictEqual(T.page, 2, 'first page number read from the template');
+  const secs = S.parse(S.EX + '\n\n본문 2\nShe [explored] the sea and [loved] it. Then she explored more. No blank here.\n그녀는 바다를 탐험했고 그것을 사랑했다. 그 후 그녀는 더 탐험했다. 빈칸 없음.');
+  S.markRepeats(secs);
+  const out = await S.unzip(S.sentenceFile(files, secs, { lesson: 'Lesson 9. Test', academy: '반포 센티움학원', page: 7 }), inflate);
+  assert.deepStrictEqual(Object.keys(out), Object.keys(files), 'same parts, same order');
+  const sec = dec(out['Contents/section0.xml']), masters = dec(out['Contents/masterpage0.xml']) + dec(out['Contents/masterpage1.xml']);
+  // 미주 numbered from 1 in each 본문; [+...] joins its blank; the repeat keeps its hint letter
+  assert.strictEqual([...sec.matchAll(/numType="ENDNOTE">[\s\S]*?<hp:t> ([^<]*)/g)].map(m => m[1]).join('|'), 'visited|amazed by|colorful|realized|is / full of|protection|(v)isit|explored|loved|(e)xplored');
+  assert.deepStrictEqual([...sec.matchAll(/<hp:autoNum num="(\d+)" numType="ENDNOTE"/g)].map(m => +m[1]), [1, 2, 3, 4, 5, 6, 7, 1, 2, 3]);
+  assert.strictEqual((sec.match(/<hp:newNum num="1" numType="ENDNOTE"\/>/g) || []).length, 2, '미주 번호 restarts per 본문');
+  assert(sec.includes('<hp:run charPrIDRef="37"><hp:t>e</hp:t></hp:run><hp:run charPrIDRef="14"><hp:t>xplored</hp:t>'), 'hint letter black, rest white');
+  assert(sec.includes('>ANSWER<') && !sec.includes('Sylvia') && !sec.includes('No blank here'), 'answer part kept, old text and blank-free sentence gone');
+  assert(masters.includes('Lesson 9. Test') && !masters.includes('Guardian') && masters.includes('<hp:t>반포 센티움학원 김진혁 영어'));
+  // page number: one '새 번호로 시작' with the given number; empty → none
+  assert.deepStrictEqual([...sec.matchAll(/<hp:newNum num="(\d+)" numType="PAGE"\/>/g)].map(m => +m[1]), [7]);
+  const none = dec((await S.unzip(S.sentenceFile(files, secs, { page: null }), inflate))['Contents/section0.xml']);
+  assert(!none.includes('numType="PAGE"'), 'empty page number: counts from 1');
+  // 미주 title: 본문 1 right after ANSWER, 본문 2 with one empty line above it
+  const heads = [...sec.matchAll(/<hp:subList [^>]*>((?:(?!<hp:autoNum)[\s\S])*?)<hp:p [^>]*><hp:run charPrIDRef="\d+"><hp:ctrl><hp:autoNum num="1"/g)].map(m => (m[1].match(/<hp:p /g) || []).length);
+  assert.deepStrictEqual(heads, [1, 2], 'title alone, then empty line + title');
+  console.log('문장 빈칸 파일 checks passed');
+})().catch(e => { console.error(e); process.exit(1); });
+
+// 문단 빈칸 파일: template = the finished 문단 빈칸 on this computer
+const paraPath = __dirname + '/samples/2. 영어 2_YBM 박준언_4과_문단 빈칸.hwpx';
+if (!fs.existsSync(paraPath)) console.log('문단 빈칸 파일: template not here, file checks skipped');
+else (async () => {
+  const S = { TextDecoder, TextEncoder }, zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
+  vm.runInNewContext(common + ['hwpx.js', 'wbfile.js'].map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n') +
+    fs.readFileSync(__dirname + '/어휘.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1] + ';this.markRepeats=markRepeats;this.parse=parse;this.unzip=unzip;this.paragraphFile=paragraphFile;this.readParagraphTemplate=readParagraphTemplate;', S);
+  const files = await S.unzip(fs.readFileSync(paraPath), inflate), T = S.readParagraphTemplate(files);
+  assert.deepStrictEqual([T.titleId, T.noteRun, T.blankId, T.textId, T.koId, T.ansId, T.plainId, T.noteTitleId, T.page, T.academy],
+    ['25', '26', '28', '30', '16', '44', '18', '45', 18, '남양주 대치하이 영어학원']);
+  const input = `본문 1
+She [explored] the sea. She [loved] it.
+그녀는 바다를 탐험했다. 그녀는 그것을 사랑했다.
+
+Then she explored more.
+그 후 그녀는 더 탐험했다.
+
+본문 2
+No blank here at all.
+빈칸이 전혀 없다.`;
+  const secs = S.parse(input);
+  S.markRepeats(secs);
+  const out = await S.unzip(S.paragraphFile(files, secs, { lesson: 'Lesson 9. Test', academy: '압구정 센티움학원', page: 3 }), inflate);
+  assert.deepStrictEqual(Object.keys(out), Object.keys(files), 'same parts, same order');
+  const sec = dec(out['Contents/section0.xml']), masters = dec(out['Contents/masterpage0.xml']) + dec(out['Contents/masterpage1.xml']);
+  const notes = [...sec.matchAll(/<hp:endNote [^>]*>([\s\S]*?)<\/hp:endNote>/g)].map(m => m[1]);
+  assert.strictEqual(notes.length, 2, 'one hidden 미주 per 본문');
+  const noteText = n => [...n.matchAll(/<hp:p [^>]*>([\s\S]*?)<\/hp:p>/g)].map(p => p[1].replace(/<[^>]+>/g, ''));
+  assert.deepStrictEqual(noteText(notes[0]), ['본문 1', 'She explored the sea. She loved it.', 'Then she explored more.']);
+  assert.deepStrictEqual(noteText(notes[1]), ['', '본문 2', 'No blank here at all.'], '본문 2: empty line above its title');
+  assert(notes[0].includes('<hp:run charPrIDRef="18"><hp:t>e</hp:t></hp:run><hp:run charPrIDRef="44"><hp:t>xplored</hp:t>'), 'answer marked, hint letter plain');
+  const body = sec.replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '');
+  assert.strictEqual((body.match(/<hp:t>본문 1<\/hp:t>/g) || []).length, 2, 'each 본문 twice');
+  assert.strictEqual((body.match(/그녀는 바다를 탐험했다\. 그녀는 그것을 사랑했다\./g) || []).length, 1, '해석 only in the first copy, one per English paragraph');
+  assert.strictEqual((body.match(/<hp:run charPrIDRef="28"><hp:t>explored<\/hp:t>/g) || []).length, 2);
+  assert(body.includes('<hp:run charPrIDRef="30"><hp:t>e</hp:t></hp:run><hp:run charPrIDRef="28"><hp:t>xplored</hp:t>'), 'repeat: hint letter black');
+  assert(!/Sylvia|Duarte/.test(sec) && sec.includes('>ANSWER<'), 'old text gone, ANSWER kept');
+  assert.deepStrictEqual([...sec.matchAll(/<hp:newNum num="(\d+)" numType="PAGE"\/>/g)].map(m => +m[1]), [3]);
+  assert(masters.includes('Lesson 9. Test') && masters.includes('<hp:t>압구정 센티움학원 김진혁 영어') && !masters.includes('대치하이'));
+  console.log('문단 빈칸 파일 checks passed');
 })().catch(e => { console.error(e); process.exit(1); });
