@@ -492,3 +492,226 @@ No blank here at all.
   assert(masters.includes('Lesson 9. Test') && masters.includes('<hp:t>압구정 센티움학원 김진혁 영어') && !masters.includes('대치하이'));
   console.log('문단 빈칸 파일 checks passed');
 })().catch(e => { console.error(e); process.exit(1); });
+
+// 동사 지도 파일: template = the finished 동사 지도 on this computer. The sample's own 4과, turned back into 전처리
+// ([base = answer] from its passages and answer list), must come out with the same passages, answers and table sizes.
+const verbPath = __dirname + '/samples/3. 영어_2_YBM_박준언_4과_동사 지도.hwpx';
+if (!fs.existsSync(verbPath)) console.log('동사 지도 파일: template not here, file checks skipped');
+else (async () => {
+  const S = { TextDecoder, TextEncoder }, zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
+  vm.runInNewContext(common + ['hwpx.js', 'wbfile.js'].map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n') +
+    fs.readFileSync(__dirname + '/어법.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1] + ';this.verbMap=verbMap;this.unzip=unzip;this.verbFile=verbFile;this.readVerbTemplate=readVerbTemplate;this.topParas=topParas;', S);
+  const files = await S.unzip(fs.readFileSync(verbPath), inflate), T = S.readVerbTemplate(files);
+  assert.deepStrictEqual([T.titleId, T.noteRun, T.baseId, T.fw, T.page, T.academy, /colCnt="4"/.test(T.table)], ['17', '14', '24', true, 37, '남양주 대치하이 영어학원', true]);
+  // the sample, back to 전처리
+  const read = sec => {
+    const ps = S.topParas(sec), out = [];
+    let cur = null;
+    for (const p of ps) {
+      const own = p.xml.replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '').replace(/<[^>]+>/g, '').trim(); // without the hidden 미주
+      if (/styleIDRef="1"/.test(p.xml) && own) { cur = { title: own, paras: [] }; out.push(cur); }
+      else if (cur && /styleIDRef="2"/.test(p.xml) && !p.xml.includes("<hp:tbl ")) cur.paras.push(p.xml.replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '').replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, ''));
+    }
+    const notes = [...sec.matchAll(/<hp:endNote [^>]*>([\s\S]*?)<\/hp:endNote>/g)].map(m => S.topParas(m[1]).map(p => p.text).filter(Boolean)).flat();
+    return { secs: out, notes };
+  };
+  const vis = x => x.replace(/<hp:fwSpace\/>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const orig = read(dec(files['Contents/section0.xml']));
+  let title = '';
+  const ans = {};
+  orig.notes.forEach(l => { if (!/^[➊-➓⓫-⓴]/.test(l)) title = l.trim(); else (ans[title] = ans[title] || []).push(l.slice(1).trim()); });
+  const input = orig.secs.map(s => { let k = 0; return "# " + s.title + '\n' + s.paras.map(p => {
+    return vis(p).replace(/[➊-➓⓫-⓴] \( ?([^)]*?) ?\)/g, (_, base) => `[${base.trim()} = ${ans[s.title][k++]}]`);
+  }).join('\n\n'); }).join('\n\n');
+  const data = S.verbMap(input);
+  const out = await S.unzip(S.verbFile(files, data, { page: 37 }), inflate);
+  const sec = dec(out['Contents/section0.xml']), made = read(sec);
+  assert.deepStrictEqual(made.secs.map(s => s.title), orig.secs.map(s => s.title), 'same 본문');
+  made.secs.forEach((s, i) => assert.deepStrictEqual(s.paras.map(vis), orig.secs[i].paras.map(vis), s.title + ' passage'));
+  assert.deepStrictEqual(made.notes.map(l => l.trim()), orig.notes.map(l => l.trim()), 'same answer lines');
+  // tables: 4 columns, half as many rows as questions, numbers down the left pair first
+  const tables = [...sec.matchAll(/<hp:tbl [^>]*rowCnt="(\d+)" colCnt="(\d+)"[\s\S]*?<\/hp:tbl>/g)];
+  assert.deepStrictEqual(tables.map(t => [+t[1], +t[2]]), plain(data.secs.map(s => [Math.ceil(s.answers.length / 2), 4])));
+  const cells = t => [...t.matchAll(/<hp:tc [\s\S]*?<\/hp:tc>/g)].map(c => c[0].replace(/<[^>]+>/g, ''));
+  assert.deepStrictEqual(cells(tables[0][0]), ['➊', '', '➎', '', '➋', '', '➏', '', '➌', '', '➐', '', '➍', '', '', ''], '7 questions: ➊-➍ | ➎-➐');
+  assert.strictEqual(new Set(tables.map(t => t[0].match(/ id="(\d+)"/)[1])).size, tables.length, 'table ids differ');
+  console.log('동사 지도 파일 checks passed');
+})().catch(e => { console.error(e); process.exit(1); });
+
+// 어법 선택형 파일: template = the finished 어법 선택형 on this computer. Its own 4과, turned back into 전처리
+// (* on the options its 미주 give as answers), must come out with the same sentences, 해석 and answers.
+const choicePath = __dirname + '/samples/4. 영어_2_YBM_박준언_4과_어법 선택형.hwpx';
+if (!fs.existsSync(choicePath)) console.log('어법 선택형 파일: template not here, file checks skipped');
+else (async () => {
+  const S = { TextDecoder, TextEncoder }, zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
+  vm.runInNewContext(common + ['hwpx.js', 'wbfile.js'].map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n') +
+    fs.readFileSync(__dirname + '/어법.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1] + ';this.choiceMap=choiceMap;this.unzip=unzip;this.choiceFile=choiceFile;this.readChoiceTemplate=readChoiceTemplate;this.topParas=topParas;', S);
+  const files = await S.unzip(fs.readFileSync(choicePath), inflate), T = S.readChoiceTemplate(files);
+  assert.deepStrictEqual([T.gap, T.markId, T.textId, T.page, T.academy], [5, '13', '16', 47, '남양주 대치하이 영어학원']);
+  const vis = x => x.replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '').replace(/<hp:fwSpace\/>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  // sentences (English + 해석) per 본문, and the 미주 answers in order
+  const read = sec => {
+    const out = [];
+    let cur = null;
+    for (const p of S.topParas(sec)) {
+      const own = vis(p.xml);
+      if (/styleIDRef="1"/.test(p.xml) && own) { cur = { title: own, en: [], ko: [] }; out.push(cur); }
+      else if (cur && /styleIDRef="2"/.test(p.xml) && own) cur.en.push(own);
+      else if (cur && /styleIDRef="3"/.test(p.xml) && own) cur.ko.push(own);
+    }
+    const answers = [...sec.matchAll(/<hp:autoNum [^>]*numType="ENDNOTE">[\s\S]*?<\/hp:autoNum><\/hp:ctrl>([\s\S]*?)<\/hp:p>/g)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+    return { secs: out, answers };
+  };
+  const orig = read(dec(files['Contents/section0.xml']));
+  let k = 0;
+  const input = orig.secs.map(s => '# ' + s.title + '\n' + s.en.map((e, j) => e.replace(/\[ ?([^\]]*?) ?\]/g, (_, b) => {
+    const right = orig.answers[k++].replace(/\(.*\)$/, '').split(' 또는 ').map(x => x.trim());
+    return '[' + b.split('/').map(x => x.trim()).map(x => (right.includes(x) ? '*' : '') + x).join('/') + ']';
+  }) + '\n' + (s.ko[j] || '')).join('\n')).join('\n\n');
+  const data = S.choiceMap(input);
+  const out = await S.unzip(S.choiceFile(files, data, {}), inflate);
+  const made = read(dec(out['Contents/section0.xml']));
+  const norm = x => x.replace(/\[ /g, '[').replace(/ \]/g, ']').replace(/ \/ /g, '/');
+  assert.deepStrictEqual(made.secs.map(s => s.title), orig.secs.map(s => s.title), 'same 본문');
+  made.secs.forEach((s, i) => {
+    assert.deepStrictEqual(s.en.map(norm), orig.secs[i].en.map(norm), s.title + ' sentences');
+    assert.deepStrictEqual(s.ko, orig.secs[i].ko, s.title + ' 해석');
+  });
+  const bare = a => a.replace(/\s*\(.*\)$/, '').trim();
+  // the sample's own two mistakes (a doubled option; a missing / in "preventingprevented") are the only differences
+  const diff = made.answers.map(bare).map((a, i) => a === bare(orig.answers[i]) ? null : [a, bare(orig.answers[i])]).filter(Boolean);
+  assert.deepStrictEqual(diff, [['having been chosen 또는 having been chosen', 'having been chosen'], ['', 'preventing']], 'same answers');
+  const sec = dec(out['Contents/section0.xml']);
+  assert(sec.includes('<hp:run charPrIDRef="13"><hp:t>[<hp:fwSpace/>fascinated<hp:fwSpace/>/<hp:fwSpace/>were fascinated<hp:fwSpace/>]</hp:t>'), 'fixed-width spaces in the brackets');
+  assert.strictEqual((sec.match(/<hp:newNum num="1" numType="ENDNOTE"\/>/g) || []).length, made.secs.length, '미주 번호 restarts per 본문');
+  console.log('어법 선택형 파일 checks passed');
+})().catch(e => { console.error(e); process.exit(1); });
+
+// 어법 고치기 파일: template = the finished 어법 고치기 on this computer. Its own 4과, turned back into 전처리 ([wrong = right]:
+// wrong from the problem passage, right from the marked parts of the answer 미주), must come out the same.
+const fixPath = __dirname + '/samples/5. 영어 2_YBM 박준언_4과_어법 고치기.hwpx';
+if (!fs.existsSync(fixPath)) console.log('어법 고치기 파일: template not here, file checks skipped');
+else (async () => {
+  const S = { TextDecoder, TextEncoder }, zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
+  vm.runInNewContext(common + ['hwpx.js', 'wbfile.js'].map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n') +
+    fs.readFileSync(__dirname + '/어법.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1] + ';this.fixMap=fixMap;this.unzip=unzip;this.fixFile=fixFile;this.readFixTemplate=readFixTemplate;this.topParas=topParas;this.charOf=charOf;', S);
+  const files = await S.unzip(fs.readFileSync(fixPath), inflate), T = S.readFixTemplate(files);
+  assert.deepStrictEqual([T.titleId, T.noteRun, T.ansId, T.plainId, T.page, T.academy], ['21', '22', '24', '25', 62, '압구정 센티움학원']);
+  const vis = x => x.replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '').replace(/<hp:fwSpace\/>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  // per 본문: title, problem passages, answer passages as [text, marked?] pieces
+  const read = (sec, header) => {
+    const out = [], marked = id => /underline type="BOTTOM"/.test(S.charOf(header, id));
+    let cur = null;
+    for (const p of S.topParas(sec)) {
+      const own = vis(p.xml);
+      if (/styleIDRef="1"/.test(p.xml) && own) { cur = { title: own, q: [], a: [] }; out.push(cur); }
+      else if (cur && own && own !== 'ANSWER') cur.q.push(own);
+      const note = p.xml.match(/<hp:endNote [^>]*>([\s\S]*?)<\/hp:endNote>/);
+      if (cur && note) cur.a = S.topParas(note[1].replace(/^<hp:subList [^>]*>/, '').replace(/<\/hp:subList>$/, '')).filter(x => x.text.length >= 30)
+        .map(x => [...x.xml.matchAll(/<hp:run charPrIDRef="(\d+)"><hp:t>([\s\S]*?)<\/hp:t>/g)].map(r => [r[2].replace(/<hp:fwSpace\/>/g, ' '), marked(r[1])]));
+    }
+    return out;
+  };
+  const orig = read(dec(files['Contents/section0.xml']), dec(files['Contents/header.xml']));
+  const input = orig.map(s => '# ' + s.title.replace(/ \(\d+개\)$/, '') + '\n' + s.q.map((q, j) => {
+    // join the pieces: same kind in a row, and a spaces-only piece between two marked ones belongs to them
+    const pcs = [];
+    s.a[j].forEach(([text, mark], i, all) => {
+      const m = mark || (!text.trim() && i > 0 && i < all.length - 1 && all[i - 1][1] && all[i + 1][1]);
+      if (pcs.length && pcs[pcs.length - 1][1] === m) pcs[pcs.length - 1][0] += text; else pcs.push([text, m]);
+    });
+    let cur = 0, pending = null, outp = '';
+    for (const [text, mark] of pcs.concat([['', false]])) {
+      if (mark) { pending = text; continue; }
+      const core = text.trim(), at = core ? q.indexOf(core, cur) : q.length; // spaces may differ
+      if (at < 0) throw new Error('rebuild: not found ' + core.slice(0, 40));
+      if (pending !== null) { outp += ` [${q.slice(cur, at).trim()} = ${pending.trim().replace(/ \[또는 (.*)\]$/, ' 또는 $1')}] `; pending = null; }
+      else outp += q.slice(cur, at);
+      outp += core; cur = at + core.length;
+    }
+    return outp;
+  }).join('\n\n')).join('\n\n');
+  const data = S.fixMap(input);
+  const out = await S.unzip(S.fixFile(files, data, {}), inflate);
+  const made = read(dec(out['Contents/section0.xml']), dec(out['Contents/header.xml']));
+  const flat = a => a.map(p => p.map(([t, m]) => m ? '{' + t + '}' : t).join('').replace(/\s+/g, ' ').replace(/ \}/g, '} ').replace(/\{ /g, ' {').trim());
+  assert.deepStrictEqual(made.map(s => s.title), orig.map(s => s.title), 'same titles with (N개)');
+  made.forEach((s, i) => {
+    assert.deepStrictEqual(s.q, orig[i].q, s.title + ' problem');
+    assert.deepStrictEqual(flat(s.a), flat(orig[i].a), s.title + ' answer');
+  });
+  const sec = dec(out['Contents/section0.xml']);
+  assert(sec.includes('breathing<hp:fwSpace/>[또는 she breathed]'), 'several answers: original style');
+  console.log('어법 고치기 파일 checks passed');
+})().catch(e => { console.error(e); process.exit(1); });
+
+// 배열 영작 · 통영작 파일: templates = the finished files on this computer. Each sample's own 4과, turned back into 전처리
+// (answers from its 미주), must come out with the same 해석, the same words in each [ ] / blank, and the same answers.
+for (const [kind, file, full] of [['arrange', '6. 영어_2_YBM_박준언_4과_배열 영작.hwpx', false], ['full', '7. 영어_2_YBM_박준언_4과_통영작.hwpx', true]]) {
+  const path = __dirname + '/samples/' + file;
+  if (!fs.existsSync(path)) { console.log(kind + ' 파일: template not here, file checks skipped'); continue; }
+  (async () => {
+    const S = { TextDecoder, TextEncoder }, zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
+    vm.runInNewContext(common + ['hwpx.js', 'wbfile.js'].map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n') +
+      fs.readFileSync(__dirname + '/영작.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1] + ';this.writeMap=writeMap;this.unzip=unzip;this.writeFile=writeFile;this.readWriteTemplate=readWriteTemplate;this.topParas=topParas;this.charOf=charOf;', S);
+    const files = await S.unzip(fs.readFileSync(path), inflate), T = S.readWriteTemplate(files, kind, full);
+    assert.deepStrictEqual([T.gap, !!T.noteRun, full ? !!T.blankId : !!T.markId], [full ? 3 : 5, true, true], kind + ' template');
+    // per 본문: title; per sentence: 해석, English pieces [text, blank/bracket?]; and the 미주 answers in order
+    const read = (sec, header) => {
+      const white = id => /textColor="#FFFFFF"/.test(S.charOf(header, id)), out = [];
+      let cur = null;
+      for (const p of S.topParas(sec)) {
+        const x = p.xml.replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '').replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '');
+        const own = x.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+        if (/styleIDRef="1"/.test(p.xml) && own) { cur = { title: own, sents: [] }; out.push(cur); }
+        else if (cur && p.xml.includes('<hp:endNote ')) cur.sents.push({ ko: own, en: [] });
+        else if (cur && own && own !== 'ANSWER' && cur.sents.length) cur.sents[cur.sents.length - 1].en.push(...[...x.matchAll(/<hp:run charPrIDRef="(\d+)"><hp:t>([\s\S]*?)<\/hp:t>/g)]
+          .map(r => [r[2], full ? white(r[1]) : /^\s*\[/.test(r[2])]));
+      }
+      const answers = [...sec.matchAll(/<hp:autoNum [^>]*numType="ENDNOTE">[\s\S]*?<\/hp:autoNum><\/hp:ctrl>([\s\S]*?)<\/hp:p>/g)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+      return { secs: out, answers };
+    };
+    // blanks / brackets of one sentence as groups of words (a space between two blank words keeps them in one group)
+    const groups = en => {
+      if (!full) return (en.map(([t]) => t).join('').match(/\[[^\]]*\]/g) || []).map(x => x.replace(/[\[\]\/]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' '));
+      // 통영작: blank pieces joined across gaps of only spaces / punctuation
+      const marked = en.map(([t, b]) => b ? '\u0001' + t + '\u0002' : t).join('').replace(/\u0002([^A-Za-z0-9\u0001\u0002]*)\u0001/g, '$1');
+      if (marked) return [...marked.matchAll(/\u0001([^\u0002]*)\u0002/g)].map(m => m[1].split(/\s+/).filter(Boolean).sort().join(' '));
+      const g = [];
+      let open = false;
+      en.forEach(([t, b], i) => {
+        if (b) { if (!open) g.push(''); g[g.length - 1] += t; open = true; }
+        else if (!(full && !/[A-Za-z0-9]/.test(t) && open && en[i + 1] && en[i + 1][1])) open = false;
+        else g[g.length - 1] += t;
+      });
+      return g.map(x => x.replace(/[\[\]\/]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' '));
+    };
+    const plainText = en => en.map(([t, b]) => b ? '#' : t).join('').replace(full ? /#+([^A-Za-z0-9#]+#+)*/g : /#+(\s#+)*/g, '#').replace(/\s+/g, ' ').trim(); // friend’s: one blank
+    const orig = read(dec(files['Contents/section0.xml']), dec(files['Contents/header.xml']));
+    let k = 0;
+    const unclear = new Set(); // sentences where the sample's blanks can't be split back into its answers
+    const input = orig.secs.map((s, i) => '# ' + s.title + '\n' + s.sents.map((st, j) => {
+      const ans = orig.answers[k++].split(/ *\/ */), p = plainText(st.en);
+      if ((p.match(/#/g) || []).length !== ans.length) { unclear.add(i + '-' + j); unclear.add(k - 1); }
+      let a = 0;
+      return p.replace(/#/g, () => `[${ans[a++]}]`) + '\n' + st.ko.replace(/^\d+\)\s*/, '');
+    }).join('\n')).join('\n\n');
+    assert(unclear.size <= 2, kind + ': too many sentences could not be rebuilt: ' + unclear.size);
+    const out = await S.unzip(S.writeFile(files, S.writeMap(kind, input), {}, full), inflate);
+    const made = read(dec(out['Contents/section0.xml']), dec(out['Contents/header.xml']));
+    assert.deepStrictEqual(made.secs.map(s => s.title), orig.secs.map(s => s.title), kind + ' 본문');
+    made.secs.forEach((s, i) => s.sents.forEach((st, j) => {
+      const o = orig.secs[i].sents[j];
+      assert.strictEqual(st.ko, o.ko.replace(/^\d+\)\s*/, ''), `${kind} ${s.title} ${j + 1} 해석`);
+      if (unclear.has(i + '-' + j)) return;
+      assert.strictEqual(plainText(st.en), plainText(o.en), `${kind} ${s.title} ${j + 1} English`);
+      const low = g => g.map(x => x.toLowerCase().split(' ').sort().join(' '));
+      assert.deepStrictEqual(low(groups(st.en)), low(groups(o.en)), `${kind} ${s.title} ${j + 1} words in the blanks`);
+    }));
+    const sl = a => a.map(x => x.replace(/ *\/ */g, ' / '));
+    const keep = a => sl(a).filter((x, i) => !unclear.has(i));
+    assert.deepStrictEqual(keep(made.answers), keep(orig.answers), kind + ' answers');
+    assert.strictEqual(made.answers.length, orig.answers.length, kind + ' answer count');
+    console.log(kind + ' 파일 checks passed');
+  })().catch(e => { console.error(e); process.exit(1); });
+}

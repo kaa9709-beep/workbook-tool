@@ -47,6 +47,8 @@
   </section>
 </main>
 <script src="common.js"></script>
+<script src="hwpx.js"></script>
+<script src="wbfile.js"></script>
 <script>
 const CIRCLED = '➊➋➌➍➎➏➐➑➒➓⓫⓬⓭⓮⓯⓰⓱⓲⓳⓴';
 const circ = i => CIRCLED[i - 1] || `(${i})`;
@@ -70,93 +72,134 @@ function baseOf(answer) {
   return r;
 }
 
+// 동사 지도: per 본문 (those with a [ ]) its paragraphs as pieces — text, or { n, base, answer } — and the answer list.
+// Shared by the copy output and the 한글 파일.
+function verbMap(text) {
+  const secs = [], notes = [], warns = [];
+  for (const s of parse(text)) {
+    let i = 0;
+    const answers = [], made = [];
+    const paras = s.paras.map(p => p.map(st => st.en).join(' ').split(/(\[[^\]]*\])/).filter(Boolean).map(part => {
+      if (!/^\[[^\]]*\]$/.test(part)) return part;
+      const b = part.slice(1, -1), k = b.indexOf('=');
+      const answer = (k < 0 ? b : b.slice(k + 1)).trim();
+      let base = k < 0 ? '' : b.slice(0, k).trim();
+      i++;
+      if (!base) { // only the answer was written: make the base form
+        const r = baseOf(answer);
+        base = r.base;
+        made.push(`${answer} → ${base}`);
+        const where = `${s.title || '본문'} ${circ(i)} ${answer} → (${base})`;
+        if (r.alts) warns.push(`${where}: ${r.alts.join(', ')} 둘 다 될 수 있어요. 다르면 [원형 = 정답]처럼 직접 적어 주세요.`);
+        else if (!r.sure) warns.push(`${where}: 사전에 없는 단어라 원형을 추측했어요. 틀렸으면 [원형 = 정답]처럼 직접 적어 주세요.`);
+      }
+      answers.push(`${circ(i)} ${answer}`);
+      return { n: circ(i), base, answer };
+    }));
+    if (!i) continue;
+    if (made.length) notes.push(`${s.title || '본문'}: ${made.join(' · ')}`);
+    secs.push({ title: s.title, paras, answers });
+  }
+  return { secs, notes, warns };
+}
+
+// 어법 선택형: per 본문 the sentences with a [ ], each as pieces — text, or { n, shown, answer } — and its 해석.
+// Numbers restart in each 본문. Shared by the copy output and the 한글 파일.
+function choiceMap(text) {
+  const secs = [], warns = [];
+  for (const s of parse(text)) {
+    const sents = s.paras.flat().filter(hasBlank);
+    if (!sents.length) continue;
+    let n = 0;
+    secs.push({ title: s.title, sents: sents.map(st => ({ ko: st.ko, parts: st.en.split(/(\[[^\]]*\])/).filter(Boolean).map(part => {
+      if (!/^\[[^\]]*\]$/.test(part)) return part;
+      const b = part.slice(1, -1);
+      const opts = b.split('/').map(o => o.trim());
+      const shown = opts.map(o => o.replace(/^\*\s*/, ''));
+      const right = opts.filter(o => o.startsWith('*')).map(o => o.replace(/^\*\s*/, ''));
+      n++;
+      const where = `${s.title || '본문'} ${n}번 [${b}]`;
+      if (!right.length) warns.push(`${where}: 정답 표시(*)가 없어요.`);
+      if (shown.length < 2) warns.push(`${where}: 선택지가 하나뿐이에요. / 를 빠뜨리지 않았는지 확인해 주세요.`);
+      if (shown.some(o => !o)) warns.push(`${where}: 빈 선택지가 있어요. / 가 연달아 있거나 맨 앞이나 끝에 있어요.`);
+      const dup = shown.find((o, k) => o && shown.indexOf(o) !== k);
+      if (dup) warns.push(`${where}: 같은 선택지 "${dup}"가 두 번 들어 있어요.`);
+      if (right.length > 1 && right.length === shown.length) warns.push(`${where}: 모든 선택지에 * 가 있어요. 맞는지 확인해 주세요.`);
+      const answer = !right.length ? '(정답 표시 없음)' :
+        right.length === 1 ? right[0] : `${right.join(' 또는 ')} (${KNUM[right.length] || right.length} 다 체크해야 함)`;
+      return { n, shown, answer };
+    }) })) });
+  }
+  return { secs, warns };
+}
+
+// 어법 고치기: per 본문 (those with a [ ]) its paragraphs as a string where each [wrong = right] became
+// "\u0000i\u0000wrong\u0000", with items[i] = { wrong, alts } (alts empty: the words are to be deleted). Shared by the copy output and the 한글 파일.
+function fixMap(text) {
+  const secs = [], warns = [];
+  for (const s of parse(text)) {
+    let n = 0;
+    const paras = s.paras.map(p => p.map(st => st.en).join(' ')).map(p => {
+      const items = [];
+      const str = p.replace(BRACKET, (_, b) => {
+        const k = b.indexOf('=');
+        const wrong = (k < 0 ? b : b.slice(0, k)).trim(), right = k < 0 ? wrong : b.slice(k + 1).trim();
+        n++;
+        const where = `${s.title || '본문'} ${n}번째 [${b}]`;
+        if (k < 0) warns.push(`${where}: = 가 없어요. [틀린 표현 = 고친 표현]으로 적어 주세요.`);
+        else if (wrong === right) warns.push(`${where}: 틀린 표현과 고친 표현이 같아요.`);
+        items.push({ wrong, alts: right.split('또는').map(x => x.trim()).filter(Boolean) });
+        return `\u0000${items.length - 1}\u0000${wrong}\u0000`;
+      });
+      return { str, items };
+    });
+    if (n) secs.push({ title: s.title, n, paras });
+  }
+  return { secs, warns };
+}
+const fixTidy = x => x.replace(/ {2,}/g, ' ').replace(/ ([,.;:!?])/g, '$1').trim(); // an empty side leaves a double space
+
 function build(mode, text) {
   const q = [], a = [], notes = [], warns = [];
   if (mode === 'verb') {
-    for (const s of parse(text)) {
-      let i = 0;
-      const ans = [], made = [];
-      const paras = s.paras.map(p => p.map(st => st.en).join(' ')).map(p =>
-        `<p style="${P}">${esc(p).replace(BRACKET, (_, b) => {
-          const k = b.indexOf('=');
-          const answer = (k < 0 ? b : b.slice(k + 1)).trim();
-          let base = k < 0 ? '' : b.slice(0, k).trim();
-          i++;
-          if (!base) { // only the answer was written: make the base form
-            const r = baseOf(answer);
-            base = r.base;
-            made.push(`${answer} → ${base}`);
-            const where = `${s.title || '본문'} ${circ(i)} ${answer} → (${base})`;
-            if (r.alts) warns.push(`${where}: ${r.alts.join(', ')} 둘 다 될 수 있어요. 다르면 [원형 = 정답]처럼 직접 적어 주세요.`);
-            else if (!r.sure) warns.push(`${where}: 사전에 없는 단어라 원형을 추측했어요. 틀렸으면 [원형 = 정답]처럼 직접 적어 주세요.`);
-          }
-          ans.push(`${circ(i)} ${answer}`);
-          return `${circ(i)}${HALF}<b>(${HALF}${base}${HALF})</b>`;
-        })}</p>`).join('');
-      if (!i) continue;
-      if (made.length) notes.push(`${s.title || '본문'}: ${made.join(' · ')}`);
+    const v = verbMap(text);
+    notes.push(...v.notes); warns.push(...v.warns);
+    for (const s of v.secs) {
       title(q, s.title); title(a, s.title);
-      q.push(paras); // the answer table is added by hand in 한글: a pasted table breaks
-      a.push(`<p style="${P}">${ans.join('<br>')}</p>`); // one paragraph per 본문: no empty lines between answers in 한글
+      // the answer table is in the 한글 파일 only: a pasted table breaks
+      s.paras.forEach(p => q.push(`<p style="${P}">${p.map(x => typeof x === 'string' ? esc(x) : `${x.n}${HALF}<b>(${HALF}${esc(x.base)}${HALF})</b>`).join('')}</p>`));
+      a.push(`<p style="${P}">${s.answers.map(esc).join('<br>')}</p>`); // one paragraph per 본문: no empty lines between answers in 한글
     }
   }
   if (mode === 'choice') {
-    for (const s of parse(text)) {
-      const sents = s.paras.flat().filter(hasBlank);
-      if (!sents.length) continue;
-      let n = 0; // numbering restarts in each 본문
+    const c = choiceMap(text);
+    warns.push(...c.warns);
+    for (const s of c.secs) {
       title(q, s.title); title(a, s.title);
-      const keys = []; // all answers of this 본문 in one paragraph
-      for (const st of sents) {
-        const html = esc(st.en).replace(BRACKET, (_, b) => {
-          const opts = b.split('/').map(o => o.trim());
-          const shown = opts.map(o => o.replace(/^\*\s*/, ''));
-          const right = opts.filter(o => o.startsWith('*')).map(o => o.replace(/^\*\s*/, ''));
-          n++;
-          const where = `${s.title || '본문'} ${n}번 [${b}]`;
-          if (!right.length) warns.push(`${where}: 정답 표시(*)가 없어요.`);
-          if (shown.length < 2) warns.push(`${where}: 선택지가 하나뿐이에요. / 를 빠뜨리지 않았는지 확인해 주세요.`);
-          if (shown.some(o => !o)) warns.push(`${where}: 빈 선택지가 있어요. / 가 연달아 있거나 맨 앞이나 끝에 있어요.`);
-          const dup = shown.find((o, k) => o && shown.indexOf(o) !== k);
-          if (dup) warns.push(`${where}: 같은 선택지 "${dup}"가 두 번 들어 있어요.`);
-          if (right.length > 1 && right.length === shown.length) warns.push(`${where}: 모든 선택지에 * 가 있어요. 맞는지 확인해 주세요.`);
-          keys.push(`${n}) ${!right.length ? '(정답 표시 없음)' :
-            right.length === 1 ? right[0] : `${right.join(' 또는 ')} (${KNUM[right.length] || right.length} 다 체크해야 함)`}`);
-          return `${supNum(n)}[${HALF}${shown.join(`${HALF}/${HALF}`)}${HALF}]`;
-        });
+      for (const st of s.sents) {
+        const html = st.parts.map(x => typeof x === 'string' ? esc(x) : `${supNum(x.n)}[${HALF}${x.shown.map(esc).join(`${HALF}/${HALF}`)}${HALF}]`).join('');
         // English and its 해석 in one paragraph: an empty line only between sentences
         q.push(`<p style="${P}">${html}${st.ko ? `<br><span style="${KO}">${esc(st.ko)}</span>` : ''}</p>`);
       }
-      a.push(`<p style="${P}">${keys.join('<br>')}</p>`);
+      // all answers of this 본문 in one paragraph
+      a.push(`<p style="${P}">${s.sents.flatMap(st => st.parts.filter(x => typeof x !== 'string')).map(x => `${x.n}) ${esc(x.answer)}`).join('<br>')}</p>`);
     }
   }
   if (mode === 'fix') {
     // Problem: the passage with the wrong forms and "(N개)"; answer: the corrected passage, corrections in 【 】.
     const RED = 'color:#FF0000;';
-    for (const s of parse(text)) {
-      const paras = s.paras.map(p => p.map(st => st.en).join(' '));
-      let n = 0;
+    const f = fixMap(text);
+    warns.push(...f.warns);
+    for (const s of f.secs) {
       const qp = [], ap = [];
-      for (const p of paras) {
-        const parts = [];
-        const html = esc(p).replace(BRACKET, (_, b) => {
-          const k = b.indexOf('=');
-          const wrong = (k < 0 ? b : b.slice(0, k)).trim(), right = k < 0 ? wrong : b.slice(k + 1).trim();
-          n++;
-          const where = `${s.title || '본문'} ${n}번째 [${b}]`;
-          if (k < 0) warns.push(`${where}: = 가 없어요. [틀린 표현 = 고친 표현]으로 적어 주세요.`);
-          else if (wrong === right) warns.push(`${where}: 틀린 표현과 고친 표현이 같아요.`);
-          const alts = right.split('또는').map(x => x.trim()).filter(Boolean);
-          // 【 】 because 한글 drops bold/colour on paste; right side empty means the words are to be deleted
-          parts.push(`<b style="${RED}">【${alts.length ? alts[0] + (alts.length > 1 ? ` (또는 ${alts.slice(1).join(', ')})` : '') : '삭제: ' + wrong}】</b>`);
-          return `\u0000${parts.length - 1}\u0000${wrong}\u0000`;
-        });
-        const tidy = x => x.replace(/ {2,}/g, ' ').replace(/ ([,.;:!?])/g, '$1').trim(); // an empty side leaves a double space
-        qp.push(`<p style="${P}">${tidy(html.replace(/\u0000\d+\u0000([^\u0000]*)\u0000/g, '$1'))}</p>`);
-        ap.push(`<p style="${P}">${tidy(html.replace(/\u0000(\d+)\u0000[^\u0000]*\u0000/g, (_, i) => parts[i]))}</p>`);
+      for (const p of s.paras) {
+        const html = esc(p.str); // the \u0000 marks survive esc
+        // 【 】 because 한글 drops bold/colour on paste; right side empty means the words are to be deleted
+        const parts = p.items.map(x => `<b style="${RED}">【${x.alts.length ? esc(x.alts[0]) + (x.alts.length > 1 ? ` (또는 ${x.alts.slice(1).map(esc).join(', ')})` : '') : '삭제: ' + esc(x.wrong)}】</b>`);
+        qp.push(`<p style="${P}">${fixTidy(html.replace(/\u0000\d+\u0000([^\u0000]*)\u0000/g, '$1'))}</p>`);
+        ap.push(`<p style="${P}">${fixTidy(html.replace(/\u0000(\d+)\u0000[^\u0000]*\u0000/g, (_, i) => parts[i]))}</p>`);
       }
-      if (!n) continue;
-      title(q, `${s.title ? s.title + ' ' : ''}(${n}개)`); q.push(...qp);
+      title(q, `${s.title ? s.title + ' ' : ''}(${s.n}개)`); q.push(...qp);
       title(a, s.title); a.push(...ap);
     }
   }
@@ -174,7 +217,14 @@ Last summer, Mina [visit/*visited] an aquarium with her family and was [*amazed/
 Last summer, Mina [visit = visited] an aquarium with her family. She was amazed by the colorful fish which [was = were] swimming in a huge tank. A guide explained that many sea animals [are endangering = are endangered] by plastic waste. Since then, she has tried to use less plastic, which [are = is] good for the ocean.`,
 };
 
-if (typeof document !== 'undefined') setupPage(build, EXAMPLE, 'grammar');
+if (typeof document !== 'undefined') {
+  setupPage(build, EXAMPLE, 'grammar');
+  // 한글 파일: one panel per type, shown for the chosen type
+  const mode = () => document.querySelector('input[name=mode]:checked').value;
+  const input = () => document.getElementById('input').value;
+  const panels = [['verb', '동사 지도', () => verbMap(input())], ['choice', '어법 선택형', () => choiceMap(input())], ['fix', '어법 고치기', () => fixMap(input())]].map(([k, label, data]) => setupFilePanel(k, label, data, () => mode() === k));
+  document.getElementById('modes').addEventListener('change', () => panels.forEach(f => f()));
+}
 </script>
 </body>
 </html>

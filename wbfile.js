@@ -33,7 +33,7 @@ function readFrame(files, what) {
   return { sec, header, ps, notes, masters, lesson: lesson && hwpText(lesson), lessonXml: lesson, academy: academyOf(mx),
     white: new Set([...header.matchAll(/<hh:charPr id="(\d+)"[^>]*textColor="#FFFFFF"/g)].map(m => m[1])) };
 }
-function frameParts(F, titleAt, from, englishXmls, missing) {
+function frameParts(F, titleAt, from, englishXmls, missing, needBlank = true) {
   // The ANSWER part: from the "ANSWER" line, or the page-break / column-switch line right above it
   // (문장 빈칸 switches to 2 columns there; 문단 빈칸 just starts a page). No "ANSWER" line: from the last column switch.
   let endAt = -1;
@@ -42,7 +42,8 @@ function frameParts(F, titleAt, from, englishXmls, missing) {
   else if (!F.ps[endAt - 1].text && /pageBreak="1"|<hp:colPr/.test(F.ps[endAt - 1].xml)) endAt--;
   if (endAt < 0) missing.push('ANSWER 부분');
   const blankId = topChars(englishXmls, id => F.white.has(id)), textId = topChars(englishXmls, id => !F.white.has(id));
-  if (!blankId || !textId) missing.push('빈칸(흰 글씨)과 보통 글씨 모양');
+  if (!textId) missing.push('보통 글씨 모양');
+  if (needBlank && !blankId) missing.push('빈칸(흰 글씨) 모양');
   if (missing.length) throw new Error('템플릿에서 ' + missing.join(', ') + '을(를) 찾지 못했어요.');
   const start = F.sec.slice(0, F.ps[titleAt].start);
   return { start, end: F.sec.slice(F.ps[endAt].start), blankId, textId, page: firstPage(start),
@@ -88,9 +89,10 @@ const textRun = (id, s) => s ? hwpRun(id, xmlEsc(s)) : '';
 
 // ── 문장 빈칸 ──
 
-// Finds the parts of a finished 문장 빈칸: title, English with 미주, 해석, an empty line between sentences, the 미주 paragraphs.
-function readSentenceTemplate(files) {
-  const F = readFrame(files, '문장 빈칸'), ps = F.ps, enAt = ps.findIndex(p => p.xml.includes('<hp:endNote '));
+// Finds the parts of a finished 문장 빈칸 (or 어법 선택형, same layout): title, English with 미주, 해석, an empty line
+// between sentences and how many of them the template has, the 미주 paragraphs, and the style of "[a/b]" brackets.
+function readSentenceTemplate(files, what = '문장 빈칸', needBlank = true) {
+  const F = readFrame(files, what), ps = F.ps, enAt = ps.findIndex(p => p.xml.includes('<hp:endNote '));
   let t = enAt - 1;
   while (t >= 0 && !ps[t].text) t--;
   const after = ps.slice(enAt + 1), koAt = after.findIndex(p => p.text), ko = after[koAt];
@@ -100,9 +102,13 @@ function readSentenceTemplate(files) {
   const titled = F.notes.map(noteParas).find(x => x.length > 1 && !x[0].xml.includes('<hp:autoNum'));
   const missing = [t < 0 && '첫 제목', !ko && '해석 문단', !blank && '빈 줄', !numPara && '미주 번호'].filter(Boolean);
   const style = enAt >= 0 && ps[enAt].xml.match(/styleIDRef="(\d+)"/)[1];
-  const T = frameParts(F, t, enAt, ps.filter(p => style && p.xml.includes(`styleIDRef="${style}"`)).map(p => p.xml), missing);
+  const enXmls = ps.filter(p => style && p.xml.includes(`styleIDRef="${style}"`)).map(p => p.xml);
+  const T = frameParts(F, t, enAt, enXmls, missing, needBlank);
+  let gap = 0; // empty lines after the first 해석, up to the next sentence
+  for (let i = koAt + 1; i < after.length && !after[i].text && !/pageBreak="1"/.test(after[i].xml); i++) gap++;
+  const markId = topChars(enXmls.map(x => x.replace(/<hp:run charPrIDRef="\d+"><hp:t>(?!\[)[\s\S]*?<\/hp:run>/g, '')), () => true);
   return Object.assign(T, {
-    title: ps[t].xml, titleId: runIds(ps[t].xml)[0], en: ps[enAt].xml, ko: ko.xml, koId: runIds(ko.xml)[0], blank: blank.xml,
+    title: ps[t].xml, titleId: runIds(ps[t].xml)[0], en: ps[enAt].xml, ko: ko.xml, koId: runIds(ko.xml)[0], blank: blank.xml, gap, markId,
     noteOpen: F.notes[0][0].match(/^<hp:endNote [^>]*>/)[0], subOpen: F.notes[0][1].match(/^<hp:subList [^>]*>/)[0],
     num: numPara.xml, numId: runIds(numPara.xml)[0], fmt: numPara.xml.match(/<hp:autoNumFormat [^>]*\/>/)[0],
     noteTitle: titled ? titled[0].xml : numPara.xml, noteTitleId: titled ? runIds(titled[0].xml)[0] : runIds(numPara.xml)[0],
@@ -158,6 +164,139 @@ function sentenceFile(files, secs, o = {}) {
       body.push(hwpPara(T.ko, hwpRun(T.koId, xmlEsc(st.ko || '')), false));
     });
   }
+  return finishFile(files, T, body, o);
+}
+
+// ── 어법 선택형 ──
+
+const readChoiceTemplate = files => readSentenceTemplate(files, '어법 선택형', false);
+
+// data: choiceMap() of 어법.html. Like 문장 빈칸: a 미주 before each "[ a / b ]" (numbered from 1 in each 본문, the first
+// with the title), 해석 under each sentence, the template's number of empty lines between sentences, each 본문 on a new page.
+// The brackets keep the template's look (bold, underlined) with a fixed-width space around [ / ] (사용자 결정).
+function choiceFile(files, data, o = {}) {
+  const T = readChoiceTemplate(files), body = [], FW = '<hp:fwSpace/>';
+  let inst = 1000;
+  data.secs.forEach((s, i) => {
+    if (i) body.push(hwpPara(T.blank, inner8(T.blank), true));
+    body.push(hwpPara(T.title, hwpRun(T.titleId, xmlEsc(s.title || '')), false));
+    s.sents.forEach((st, j) => {
+      if (j) for (let g = 0; g < (T.gap || SENT_GAP); g++) body.push(T.blank);
+      const restart = j ? '' : `<hp:run charPrIDRef="${T.textId}"><hp:ctrl><hp:newNum num="1" numType="ENDNOTE"/></hp:ctrl></hp:run>`;
+      const runs = st.parts.map(x => typeof x === 'string' ? textRun(T.textId, x)
+        : `<hp:run charPrIDRef="${T.textId}">${sentenceNote(T, x.n, x.answer, x.n === 1 ? s.title || '' : '', inst++, i > 0)}</hp:run>`
+          + hwpRun(T.markId || T.textId, '[' + FW + x.shown.map(xmlEsc).join(FW + '/' + FW) + FW + ']')).join('');
+      body.push(hwpPara(T.en, restart + runs, false));
+      body.push(hwpPara(T.ko, hwpRun(T.koId, xmlEsc(st.ko || '')), false));
+    });
+  });
+  return finishFile(files, T, body, o);
+}
+
+// ── 어법 고치기 ──
+
+// Finds the parts of a finished 어법 고치기: title ("본문 1 (4개)"), passage paragraph that starts with the hidden 미주,
+// the page-starting empty line, and inside the 미주 the title, passage text and marked (red, bold, underlined) corrections.
+function readFixTemplate(files) {
+  const F = readFrame(files, '어법 고치기'), ps = F.ps, enAt = ps.findIndex(p => p.xml.includes('<hp:endNote '));
+  let t = enAt - 1;
+  while (t >= 0 && !ps[t].text) t--;
+  const en = ps[enAt], enStyle = en && en.xml.match(/styleIDRef="(\d+)"/)[1];
+  const enXmls = ps.filter(p => enStyle && p.xml.includes(`styleIDRef="${enStyle}"`)).map(p => p.xml);
+  const page = ps.slice(enAt + 1).find(p => !p.text && !p.xml.includes('<hp:ctrl>') && /pageBreak="1"/.test(p.xml));
+  const noteRun = en && (en.xml.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '').match(/<hp:run charPrIDRef="(\d+)">(?:(?!<\/hp:run>)[\s\S])*?<hp:ctrl><hp:endNote /) || [])[1];
+  const all = F.notes.map(noteParas).flat().filter(p => p.text);
+  const nTitle = all.find(p => p.text.length < 30 && !/[.!?]/.test(p.text)), nBody = all.find(p => p !== nTitle && p.text.length >= 30);
+  const marked = id => /underline type="BOTTOM"/.test(charOf(F.header, id));
+  const bodyXmls = all.filter(p => p !== nTitle && p.text.length >= 30).map(p => p.xml);
+  const ansId = topChars(bodyXmls, marked), plainId = topChars(bodyXmls, id => !marked(id));
+  const missing = [t < 0 && '첫 제목', !en && '지문 문단', !page && '쪽 나눔 빈 줄', !noteRun && '지문 앞의 미주', !nTitle && '미주 제목', !(nBody && ansId && plainId) && '미주 정답 표시(밑줄)'].filter(Boolean);
+  const T = frameParts(F, t, enAt, enXmls, missing, false);
+  return Object.assign(T, {
+    title: ps[t].xml, titleId: runIds(ps[t].xml)[0], en: en.xml, noteRun, pageLine: page.xml,
+    noteOpen: F.notes[0][0].match(/^<hp:endNote [^>]*>/)[0], subOpen: F.notes[0][1].match(/^<hp:subList [^>]*>/)[0],
+    noteTitle: nTitle.xml, noteTitleId: runIds(nTitle.xml)[0], noteBody: nBody.xml, ansId, plainId,
+  });
+}
+
+// data: fixMap() of 어법.html. Per 본문 one page: "본문 1 (4개)", the passages with the wrong forms; the hidden 미주 at the start
+// of the first passage holds the title and the corrected passages, corrections marked; several right answers as
+// "breathing [또는 she breathed]" (사용자 결정), words to delete as "삭제: in".
+function fixFile(files, data, o = {}) {
+  const T = readFixTemplate(files), body = [], FW = '<hp:fwSpace/>';
+  const newPage = () => hwpPara(T.pageLine, inner8(T.pageLine), true);
+  const MARK = /\u0000(\d+)\u0000([^\u0000]*)\u0000/g;
+  data.secs.forEach((s, i) => {
+    const title = xmlEsc(s.title || '');
+    const answer = p => fixTidy(p.str).split(/(\u0000\d+\u0000[^\u0000]*\u0000)/).filter(Boolean).map(part => {
+      const m = part.match(/^\u0000(\d+)\u0000/);
+      if (!m) return textRun(T.plainId, part);
+      const x = p.items[+m[1]];
+      return hwpRun(T.ansId, x.alts.length ? xmlEsc(x.alts[0]) + (x.alts.length > 1 ? FW + '[또는 ' + x.alts.slice(1).map(xmlEsc).join(', ') + ']' : '') : '삭제: ' + xmlEsc(x.wrong));
+    }).join('');
+    const head = (i ? hwpPara(T.noteTitle, `<hp:run charPrIDRef="${T.noteTitleId}"/>`) : '') + hwpPara(T.noteTitle, hwpRun(T.noteTitleId, title));
+    const note = noteXml(T, i + 1, 1000 + i, head + s.paras.map(p => hwpPara(T.noteBody, answer(p))).join(''));
+    if (i) body.push(newPage());
+    body.push(hwpPara(T.title, hwpRun(T.titleId, xmlEsc(`${s.title ? s.title + ' ' : ''}(${s.n}개)`)), false));
+    s.paras.forEach((p, j) => body.push(hwpPara(T.en, (j ? '' : `<hp:run charPrIDRef="${T.noteRun}">${note}</hp:run>`)
+      + textRun(T.textId, fixTidy(p.str.replace(MARK, '$2'))), false)));
+  });
+  return finishFile(files, T, body, o);
+}
+
+// ── 영작 (배열 · 통영작) ──
+
+// Finds the parts of a finished 배열 영작 / 통영작: title, 해석 line that starts with the 미주 (its number is the sentence
+// number), English line, empty lines between sentences (count from the template), page-starting empty line, 미주 lines,
+// and the look of the brackets (배열: bold "[ a / b ]") or blanks (통영작: white words).
+function readWriteTemplate(files, what, full) {
+  const F = readFrame(files, what), ps = F.ps, koAt = ps.findIndex(p => p.xml.includes('<hp:endNote '));
+  let t = koAt - 1;
+  while (t >= 0 && !ps[t].text) t--;
+  const after = ps.slice(koAt + 1), enAt = after.findIndex(p => p.text), en = after[enAt];
+  const enStyle = en && en.xml.match(/styleIDRef="(\d+)"/)[1];
+  const enXmls = ps.filter(p => enStyle && p.xml.includes(`styleIDRef="${enStyle}"`)).map(p => p.xml);
+  const blank = after.find((p, i) => i > enAt && !p.text && !p.xml.includes('<hp:ctrl>') && /pageBreak="0"/.test(p.xml));
+  const page = after.find(p => !p.text && !p.xml.includes('<hp:ctrl>') && /pageBreak="1"/.test(p.xml));
+  let gap = 0;
+  for (let i = enAt + 1; i < after.length && !after[i].text && !/pageBreak="1"/.test(after[i].xml); i++) gap++;
+  const ko = ps[koAt], noteRun = ko && (ko.xml.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '').match(/<hp:run charPrIDRef="(\d+)">(?:(?!<\/hp:run>)[\s\S])*?<hp:ctrl><hp:endNote /) || [])[1];
+  const numPara = F.notes.map(noteParas).flat().find(p => p.xml.includes('<hp:autoNum'));
+  const titled = F.notes.map(noteParas).flat().find(p => p.text && !p.xml.includes('<hp:autoNum') && p.text.length < 30);
+  const markId = full ? null : topChars(enXmls.map(x => x.replace(/<hp:run charPrIDRef="\d+"><hp:t>(?!\[)[\s\S]*?<\/hp:run>/g, '')), () => true);
+  const missing = [t < 0 && '첫 제목', !en && '영어 문장', !blank && '빈 줄', !page && '쪽 나눔 빈 줄', !noteRun && '해석 앞의 미주', !numPara && '미주 번호', !full && !markId && '배열 괄호 글씨'].filter(Boolean);
+  const T = frameParts(F, t, koAt, full ? enXmls : enXmls.map(x => x.replace(new RegExp(`<hp:run charPrIDRef="${markId}">[\\s\\S]*?<\\/hp:run>`, 'g'), '')), missing, full);
+  return Object.assign(T, {
+    title: ps[t].xml, titleId: runIds(ps[t].xml)[0], ko: ko.xml, noteRun, en: en.xml, blank: blank.xml, pageLine: page.xml, gap, markId,
+    noteOpen: F.notes[0][0].match(/^<hp:endNote [^>]*>/)[0], subOpen: F.notes[0][1].match(/^<hp:subList [^>]*>/)[0],
+    num: numPara.xml, numId: runIds(numPara.xml)[0], fmt: numPara.xml.match(/<hp:autoNumFormat [^>]*\/>/)[0],
+    noteTitle: titled ? titled.xml : numPara.xml, noteTitleId: titled ? runIds(titled.xml)[0] : runIds(numPara.xml)[0],
+  });
+}
+// 통영작 blank: letters and numbers in the blank style; apostrophes, quotation marks and other punctuation stay visible
+// (friend’s → friend ’ s, ‘final frontiers’), like the originals.
+const fullBlank = (T, words) => words.split(/\s+/).map(w => w.split(/([^A-Za-z0-9-]+)/).filter(Boolean)
+  .map(x => /^[A-Za-z0-9-]/.test(x) ? hwpRun(T.blankId, xmlEsc(x)) : hwpRun(T.textId, xmlEsc(x))).join('')).join(hwpRun(T.textId, ' '));
+const readArrangeTemplate = files => readWriteTemplate(files, '배열 영작', false);
+const readFullTemplate = files => readWriteTemplate(files, '통영작', true);
+
+// data: writeMap() of 영작.html. Per sentence: "1) 해석" where 1) is the 미주 (numbered from 1 in each 본문; the first also
+// carries the title, from 본문 2 on with an empty line above it), then the English with "[ a / b ]" or white-word blanks.
+function writeFile(files, data, o, full) {
+  const T = full ? readFullTemplate(files) : readArrangeTemplate(files), body = [];
+  let inst = 1000;
+  data.secs.forEach((s, i) => {
+    if (i) body.push(hwpPara(T.pageLine, inner8(T.pageLine), true));
+    body.push(hwpPara(T.title, hwpRun(T.titleId, xmlEsc(s.title || '')), false));
+    s.sents.forEach((st, j) => {
+      if (j) for (let g = 0; g < (T.gap || SENT_GAP); g++) body.push(T.blank);
+      const restart = j ? '' : `<hp:run charPrIDRef="${T.noteRun}"><hp:ctrl><hp:newNum num="1" numType="ENDNOTE"/></hp:ctrl></hp:run>`;
+      const note = sentenceNote(T, st.n, st.answer, st.n === 1 ? s.title || '' : '', inst++, i > 0);
+      body.push(hwpPara(T.ko, restart + `<hp:run charPrIDRef="${T.noteRun}">${note}<hp:t> ${xmlEsc(st.ko || '')}</hp:t></hp:run>`, false));
+      body.push(hwpPara(T.en, st.parts.map(x => typeof x === 'string' ? textRun(T.textId, x)
+        : full ? fullBlank(T, x.units.join(' ')) : hwpRun(T.markId, xmlEsc(`[ ${x.order.join(' / ')} ]`))).join(''), false));
+    });
+  });
   return finishFile(files, T, body, o);
 }
 
@@ -218,9 +357,83 @@ function paragraphFile(files, secs, o = {}) {
   return finishFile(files, T, body, o);
 }
 
+// ── 동사 지도 ──
+
+// Finds the parts of a finished 동사 지도: title with the hidden 미주, passage paragraph ("➊ ( fascinate )" with the base in bold),
+// the "▼" line, the answer table (the 4-column one if there is one), the page-starting empty line, and the 미주's title / answer lines.
+const CIRC_RE = /[➊-➓⓫-⓴]/;
+function readVerbTemplate(files) {
+  const F = readFrame(files, '동사 지도'), ps = F.ps, t = ps.findIndex(p => p.xml.includes('<hp:endNote '));
+  const after = ps.slice(t + 1), en = after.find(p => p.text && !p.xml.includes('<hp:tbl '));
+  const enStyle = en && en.xml.match(/styleIDRef="(\d+)"/)[1];
+  const enXmls = ps.filter(p => enStyle && p.xml.includes(`styleIDRef="${enStyle}"`)).map(p => p.xml);
+  const arrow = after.find(p => p.text && p.text.length <= 2 && !/[A-Za-z가-힣]/.test(p.text) && !p.xml.includes('<hp:tbl '));
+  const tables = after.filter(p => p.xml.includes('<hp:tbl ')), table = tables.find(p => /colCnt="4"/.test(p.xml)) || tables[0];
+  const page = after.find(p => !p.text && !p.xml.includes('<hp:ctrl>') && /pageBreak="1"/.test(p.xml));
+  const noteRun = (ps[t].xml.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '').match(/<hp:run charPrIDRef="(\d+)">(?:(?!<\/hp:run>)[\s\S])*?<hp:ctrl><hp:endNote /) || [])[1];
+  // the bold base: runs starting with "("; the 미주 lines: a short title and "➊ answer" lines
+  const baseId = topChars(enXmls.map(x => x.replace(/<hp:run charPrIDRef="\d+"><hp:t>(?!\()[\s\S]*?<\/hp:run>/g, '')), () => true);
+  const all = F.notes.map(noteParas).flat().filter(p => p.text);
+  const nTitle = all.find(p => !CIRC_RE.test(p.text[0])), nItem = all.find(p => CIRC_RE.test(p.text[0]));
+  const missing = [!en && '지문 문단', !table && '답 쓰는 표', !page && '쪽 나눔 빈 줄', !noteRun && '제목의 미주', !baseId && '굵은 원형 글씨', !nTitle && '미주 제목', !nItem && '미주 정답 줄'].filter(Boolean);
+  const T = frameParts(F, t, t, enXmls.map(x => x.replace(new RegExp(`<hp:run charPrIDRef="${baseId}">[\\s\\S]*?<\\/hp:run>`, 'g'), '')), missing, false);
+  return Object.assign(T, {
+    title: ps[t].xml, titleId: runIds(ps[t].xml)[0], noteRun, en: en.xml, baseId, fw: enXmls.some(x => /[➊-➓⓫-⓴]<hp:fwSpace\/>/.test(x)),
+    arrow: arrow ? arrow.xml : '', table: table.xml, pageLine: page.xml,
+    noteOpen: F.notes[0][0].match(/^<hp:endNote [^>]*>/)[0], subOpen: F.notes[0][1].match(/^<hp:subList [^>]*>/)[0],
+    noteTitle: nTitle.xml, noteTitleId: runIds(nTitle.xml)[0], noteItem: nItem.xml, noteItemId: runIds(nItem.xml)[0],
+  });
+}
+
+// The answer table for n questions: the template's table with as many rows as needed. A 4-column table holds two
+// number+answer pairs per row, numbers going down the left pair first (➊…➑ | ➒…⓰), like the template.
+function verbTable(T, n, id) {
+  const p = T.table.replace(/<hp:linesegarray>[\s\S]*?<\/hp:linesegarray>/g, '');
+  const tbl = p.match(/<hp:tbl [\s\S]*<\/hp:tbl>/)[0], row = tbl.match(/<hp:tr>[\s\S]*?<\/hp:tr>/)[0];
+  const cols = +tbl.match(/colCnt="(\d+)"/)[1], pairs = Math.max(1, Math.floor(cols / 2)), rows = Math.ceil(n / pairs);
+  const height = +(row.match(/<hp:cellSz width="\d+" height="(\d+)"/) || [0, 0])[1];
+  const num = i => i <= n ? circ8(i) : '';
+  const trs = Array.from({ length: rows }, (_, r) => row.replace(/<hp:tc [\s\S]*?<\/hp:tc>/g, tc => {
+    const c = +tc.match(/colAddr="(\d+)"/)[1];
+    tc = tc.replace(/rowAddr="\d+"/, `rowAddr="${r}"`);
+    // number cells are the even columns; answer cells stay empty
+    return c % 2 ? tc : tc.replace(/<hp:t>[^<]*<\/hp:t>|<hp:t\/>/, num(Math.floor(c / 2) * rows + r + 1) ? `<hp:t>${num(Math.floor(c / 2) * rows + r + 1)}</hp:t>` : '<hp:t/>');
+  })).join('');
+  const newTbl = tbl.replace(/^<hp:tbl [^>]*>/, m => m.replace(/rowCnt="\d+"/, `rowCnt="${rows}"`).replace(/ id="\d+"/, ` id="${id}"`))
+    .replace(/(<hp:sz width="\d+" widthRelTo="\w+" height=")\d+/, `$1${rows * height}`)
+    .replace(/<hp:tr>[\s\S]*<\/hp:tr>/, trs);
+  return p.replace(/<hp:tbl [\s\S]*<\/hp:tbl>/, newTbl);
+}
+const circ8 = i => '➊➋➌➍➎➏➐➑➒➓⓫⓬⓭⓮⓯⓰⓱⓲⓳⓴'[i - 1] || `(${i})`;
+
+// data: verbMap() of 어법.html — per 본문 its paragraphs (text pieces and { n, base, answer }) and answer lines.
+function verbFile(files, data, o = {}) {
+  const T = readVerbTemplate(files), body = [], FW = T.fw ? '<hp:fwSpace/>' : ' ';
+  const newPage = () => hwpPara(T.pageLine, inner8(T.pageLine), true);
+  let inst = 1000, tableId = 1932025616;
+  data.secs.forEach((s, i) => {
+    const title = xmlEsc(s.title || '');
+    // the 미주: title (from 본문 2 on with an empty line above it), then "➊ were fascinated" lines
+    const head = (i ? hwpPara(T.noteTitle, `<hp:run charPrIDRef="${T.noteTitleId}"/>`) : '') + hwpPara(T.noteTitle, hwpRun(T.noteTitleId, title));
+    const note = noteXml(T, i + 1, inst++, head + s.answers.map(x => hwpPara(T.noteItem, hwpRun(T.noteItemId, xmlEsc(x)))).join(''));
+    if (i) body.push(newPage());
+    body.push(hwpPara(T.title, hwpRun(T.titleId, title) + `<hp:run charPrIDRef="${T.noteRun}">${note}</hp:run>`, false));
+    s.paras.forEach(p => body.push(hwpPara(T.en, p.map(x => typeof x === 'string' ? textRun(T.textId, x)
+      : hwpRun(T.textId, x.n + FW) + hwpRun(T.baseId, '(' + FW + xmlEsc(x.base) + FW + ')')).join(''), false)));
+    if (T.arrow) body.push(T.arrow);
+    body.push(verbTable(T, s.answers.length, tableId++));
+  });
+  return finishFile(files, T, body, o);
+}
+
 const FILE_KINDS = {
   sentence: { read: readSentenceTemplate, make: sentenceFile },
   paragraph: { read: readParagraphTemplate, make: paragraphFile },
+  verb: { read: readVerbTemplate, make: verbFile },
+  choice: { read: readChoiceTemplate, make: choiceFile },
+  fix: { read: readFixTemplate, make: fixFile },
+  arrange: { read: readArrangeTemplate, make: (f, d, o) => writeFile(f, d, o, false) },
+  full: { read: readFullTemplate, make: (f, d, o) => writeFile(f, d, o, true) },
 };
 
 // Browser: a "한글 파일" panel under the copy panel. The template stays in this computer's localStorage, never uploaded.

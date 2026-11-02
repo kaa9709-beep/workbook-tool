@@ -44,6 +44,8 @@
   </section>
 </main>
 <script src="common.js"></script>
+<script src="hwpx.js"></script>
+<script src="wbfile.js"></script>
 <script>
 const alts = s => s.split(/\s*또는\s*/);
 // 배열 units: one per word, a {chunk} stays together ("not {only is} the" → not | only is | the); the older "a / b c / d" style still works.
@@ -61,33 +63,62 @@ function shuffle(units, seedText) {
   return a;
 }
 
-function build(mode, text) {
-  const q = [], a = [], warns = [];
-  for (const s of parse(text)) {
+// Per 본문 the sentences with a [ ], numbered from 1 in each 본문: { n, ko, parts, answer }, parts = text pieces and
+// { units, order } (order: the 배열 order shown; for 통영작 the words in their right order). Shared by the copy output and the 한글 파일.
+function writeMap(mode, text) {
+  const secs = [], warns = [], notes = [], all = parse(text);
+  // Proper nouns: words written with a capital in the middle of a sentence somewhere in the input (Florida, Earle).
+  // A 배열 bracket that starts the sentence gets its first word in lower case, unless it is one of these, I, or all capitals (NOAA).
+  const proper = new Set();
+  all.forEach(s => s.paras.flat().forEach(st => st.en.replace(/[\[\]{}\/*]|또는/g, ' ').split(/\s+/).filter(Boolean)
+    .forEach((w, i, ws) => { if (i && /^[A-Z]/.test(w) && !/[.?!:]["”’]?$|[“"‘(]$/.test(ws[i - 1])) proper.add(w.replace(/[^A-Za-z’'-]+$/, '')); })));
+  const lower = u => {
+    const w = u.split(' ')[0], bare = w.replace(/[^A-Za-z’'-]+$/, '');
+    return /^[A-Z][a-z]/.test(bare) && !proper.has(bare) ? u[0].toLowerCase() + u.slice(1) : u;
+  };
+  for (const s of all) {
     const sents = s.paras.flat().filter(hasBlank);
     if (!sents.length) continue;
-    let n = 0; // numbering restarts in each 본문
-    title(q, s.title); title(a, s.title);
-    const keys = [];
-    for (const st of sents) {
-      n++;
-      const answers = [];
-      const html = esc(st.en).replace(BRACKET, (_, b) => {
+    secs.push({ title: s.title, sents: sents.map((st, i) => {
+      const n = i + 1, answers = [];
+      const parts = st.en.split(/(\[[^\]]*\])/).filter(Boolean).map((part, k, ps) => {
+        if (!/^\[[^\]]*\]$/.test(part)) return part;
+        // the sentence (or a quoted one) starts here: nothing but quotes before it, or right after an opening quotation mark
+        const before = ps.slice(0, k).join(''), first = !before.replace(/["“‘'(\s]/g, '') || /[“"]\s*$/.test(before);
+        const b = part.slice(1, -1);
         if ((b.match(/\{/g) || []).length !== (b.match(/\}/g) || []).length) warns.push(`${s.title || '본문'} ${n}) [${b}]: { 와 } 개수가 맞지 않아요.`);
         const [main, ...rest] = alts(b.trim());
         const u = units(main);
         answers.push([u.join(' '), ...rest.map(x => x.replace(/[{}]/g, ''))].join(' 또는 '));
-        return mode === 'arrange'
-          ? `[ ${shuffle(u, main).join(' / ')} ]`
-          : u.join(' ').split(/\s+/).map(w => line_(w.length)).join(' ');
+        if (mode !== 'arrange') return { units: u, order: u };
+        const shown = first && u.length ? [lower(u[0]), ...u.slice(1)] : u;
+        if (shown[0] !== u[0]) notes.push(`${s.title || '본문'} ${n}) ${u[0].split(' ')[0]} → ${shown[0].split(' ')[0]}`);
+        return { units: u, order: shuffle(shown, main) };
       });
-      // 해석 and the English in one paragraph: an empty line only between sentences
-      q.push(`<p style="${P}margin-bottom:14pt;"><span style="${KO}">${n}) ${esc(st.ko)}</span><br>${html}</p>`);
-      keys.push(`${n}) ${answers.join(' / ')}`);
-    }
-    a.push(`<p style="${P}">${keys.join('<br>')}</p>`); // all answers of this 본문 in one paragraph
+      return { n, ko: st.ko, parts, answer: answers.join(' / ') };
+    }) });
   }
-  return { q: q.join(''), a: a.join(''), warns };
+  return { secs, warns, notes };
+}
+// 통영작 blank of one word: letters and numbers blank; apostrophes, quotation marks and other punctuation shown
+// (friend’s → ______’_, ‘final → ‘________), like the 한글 originals.
+const wordBlank = w => w.split(/([^A-Za-z0-9-]+)/).map(x => !x ? '' : /^[A-Za-z0-9-]/.test(x) ? line_(x.length) : esc(x)).join('');
+
+function build(mode, text) {
+  const q = [], a = [], w = writeMap(mode, text);
+  for (const s of w.secs) {
+    title(q, s.title); title(a, s.title);
+    for (const st of s.sents) {
+      const html = st.parts.map(x => typeof x === 'string' ? esc(x) : mode === 'arrange'
+        ? `[ ${x.order.map(esc).join(' / ')} ]`
+        : x.units.join(' ').split(/\s+/).map(wordBlank).join(' ')).join('');
+      // 해석 and the English in one paragraph: an empty line only between sentences
+      q.push(`<p style="${P}margin-bottom:14pt;"><span style="${KO}">${st.n}) ${esc(st.ko)}</span><br>${html}</p>`);
+    }
+    a.push(`<p style="${P}">${s.sents.map(st => `${st.n}) ${esc(st.answer)}`).join('<br>')}</p>`); // all answers of this 본문 in one paragraph
+  }
+  return { q: q.join(''), a: a.join(''), warns: w.warns, notes: w.notes,
+    notesTitle: `배열 첫 단어를 소문자로 바꿈 ${w.notes.length}개`, notesHint: ' — 사람 이름·지명이 잘못 바뀌었으면 알려 주세요.' };
 }
 
 // Self-written example (the site is public, so no textbook passages here).
@@ -95,7 +126,14 @@ const EXAMPLE = `본문 1
 Last summer, [Mina visited an aquarium with her family]. She realized that [the ocean is {full of} life], and she decided [to use less plastic 또는 that she would use less plastic]. Her brother took many pictures of [the {sea animals} {swimming in} the tank].
 지난여름 미나는 가족과 함께 수족관을 방문했다. 그녀는 바다가 생명으로 가득하다는 것을 깨달았고, 플라스틱을 덜 쓰기로 결심했다. 그녀의 남동생은 수조 안에서 헤엄치는 바다 동물들의 사진을 많이 찍었다.`;
 
-if (typeof document !== 'undefined') setupPage(build, EXAMPLE, 'write');
+if (typeof document !== 'undefined') {
+  setupPage(build, EXAMPLE, 'write');
+  // 한글 파일: one panel per type, shown for the chosen type
+  const mode = () => document.querySelector('input[name=mode]:checked').value;
+  const input = () => document.getElementById('input').value;
+  const panels = [['arrange', '배열 영작'], ['full', '통영작']].map(([k, label]) => setupFilePanel(k, label, () => writeMap(k, input()), () => mode() === k));
+  document.getElementById('modes').addEventListener('change', () => panels.forEach(f => f()));
+}
 </script>
 </body>
 </html>
