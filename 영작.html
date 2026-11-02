@@ -68,6 +68,7 @@ function build(mode, text) {
     if (!sents.length) continue;
     let n = 0; // numbering restarts in each 본문
     title(q, s.title); title(a, s.title);
+    const keys = [];
     for (const st of sents) {
       n++;
       const answers = [];
@@ -80,10 +81,11 @@ function build(mode, text) {
           ? `[ ${shuffle(u, main).join(' / ')} ]`
           : u.join(' ').split(/\s+/).map(w => line_(w.length)).join(' ');
       });
-      q.push(`<p style="${KO}margin-bottom:3pt;">${n}) ${esc(st.ko)}</p>`);
-      q.push(`<p style="${P}margin-bottom:14pt;">${html}</p>`);
-      a.push(`<p style="${P}">${n}) ${answers.join(' / ')}</p>`);
+      // 해석 and the English in one paragraph: an empty line only between sentences
+      q.push(`<p style="${P}margin-bottom:14pt;"><span style="${KO}">${n}) ${esc(st.ko)}</span><br>${html}</p>`);
+      keys.push(`${n}) ${answers.join(' / ')}`);
     }
+    a.push(`<p style="${P}">${keys.join('<br>')}</p>`); // all answers of this 본문 in one paragraph
   }
   return { q: q.join(''), a: a.join(''), warns };
 }

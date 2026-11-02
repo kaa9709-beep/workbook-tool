@@ -97,7 +97,7 @@ function build(mode, text) {
       if (made.length) notes.push(`${s.title || '본문'}: ${made.join(' · ')}`);
       title(q, s.title); title(a, s.title);
       q.push(paras); // the answer table is added by hand in 한글: a pasted table breaks
-      for (const x of ans) a.push(`<p style="${P}">${x}</p>`);
+      a.push(`<p style="${P}">${ans.join('<br>')}</p>`); // one paragraph per 본문: no empty lines between answers in 한글
     }
   }
   if (mode === 'choice') {
@@ -106,6 +106,7 @@ function build(mode, text) {
       if (!sents.length) continue;
       let n = 0; // numbering restarts in each 본문
       title(q, s.title); title(a, s.title);
+      const keys = []; // all answers of this 본문 in one paragraph
       for (const st of sents) {
         const html = esc(st.en).replace(BRACKET, (_, b) => {
           const opts = b.split('/').map(o => o.trim());
@@ -119,13 +120,14 @@ function build(mode, text) {
           const dup = shown.find((o, k) => o && shown.indexOf(o) !== k);
           if (dup) warns.push(`${where}: 같은 선택지 "${dup}"가 두 번 들어 있어요.`);
           if (right.length > 1 && right.length === shown.length) warns.push(`${where}: 모든 선택지에 * 가 있어요. 맞는지 확인해 주세요.`);
-          a.push(`<p style="${P}">${n}) ${!right.length ? '(정답 표시 없음)' :
-            right.length === 1 ? right[0] : `${right.join(' 또는 ')} (${KNUM[right.length] || right.length} 다 체크해야 함)`}</p>`);
+          keys.push(`${n}) ${!right.length ? '(정답 표시 없음)' :
+            right.length === 1 ? right[0] : `${right.join(' 또는 ')} (${KNUM[right.length] || right.length} 다 체크해야 함)`}`);
           return `${supNum(n)}[${HALF}${shown.join(`${HALF}/${HALF}`)}${HALF}]`;
         });
-        q.push(`<p style="${P}">${html}</p>`);
-        if (st.ko) q.push(`<p style="${KO}text-align:right;">${esc(st.ko)}</p>`);
+        // English and its 해석 in one paragraph: an empty line only between sentences
+        q.push(`<p style="${P}">${html}${st.ko ? `<br><span style="${KO}">${esc(st.ko)}</span>` : ''}</p>`);
       }
+      a.push(`<p style="${P}">${keys.join('<br>')}</p>`);
     }
   }
   if (mode === 'fix') {
