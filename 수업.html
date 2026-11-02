@@ -49,6 +49,8 @@
   </section>
 </main>
 <script src="common.js"></script>
+<script src="hwpx.js"></script>
+<script src="wbfile.js"></script>
 <script>
 // A trailing one of these gets " ~" (belong to ~); herself etc. become oneself.
 const PREP = new Set('to in of with by for on as from about at into onto than over through against toward towards upon within without'.split(' '));
@@ -99,33 +101,47 @@ let MEAN = {};
 try { MEAN = JSON.parse(localStorage.getItem('class-meanings')) || {}; } catch (e) {}
 const meanKey = (word, en) => word + '\n' + en;
 
+// 예문장: per 본문 the sentences with a [ ], each with its word list ("explore: v. 탐험하다" — 뜻 from AI 뜻 채우기 if there),
+// the sentence as pieces (text, or { body } for a target word) and its 해석. Shared by the copy output and the 한글 파일.
+function exampleMap(secs) {
+  const out = [], notes = [], fill = [];
+  for (const s of secs) {
+    const sents = s.paras.flat().filter(hasBlank);
+    if (!sents.length) continue;
+    out.push({ title: s.title, sents: sents.map(st => {
+      const items = []; // [bodies, starts the sentence]
+      const parts = st.en.split(/(\[[^\]]*\])/).filter(Boolean).map((part, k, ps) => {
+        if (!/^\[[^\]]*\]$/.test(part)) return part;
+        const b = part.slice(1, -1), body = plain(b);
+        if (b.trim().startsWith('+') && items.length) items[items.length - 1][0].push(body);
+        else items.push([[body], /^[^A-Za-z]*$/.test(ps.slice(0, k).join(''))]);
+        return { body };
+      });
+      const list = [];
+      for (const [bodies, first] of items) {
+        const e = entry(bodies, first);
+        if (!list.includes(e.text)) list.push(e.text);
+        e.guesses.forEach(g => notes.push(`${s.title || '본문'}: ${g} (두 뜻이 있는 형태 — 확인하세요)`));
+      }
+      list.forEach(x => fill.push({ word: x, en: st.en, ko: st.ko }));
+      const lines = list.map(x => x + ':' + (MEAN[meanKey(x, st.en)] ? ' ' + MEAN[meanKey(x, st.en)] : ''));
+      return { lines, parts, ko: st.ko };
+    }) });
+  }
+  return { secs: out, notes, fill };
+}
+
 function build(mode, text) {
-  const secs = parse(text), q = [], a = [], notes = [], fill = [];
+  const secs = parse(text), q = [], a = [];
+  let notes = [], fill = [];
   if (mode === 'exblank') sentenceBlanks(secs, q, a); // no repeat check: that is the 문장 빈칸 difference
   if (mode === 'example') {
-    for (const s of secs) {
-      const sents = s.paras.flat().filter(hasBlank);
-      if (!sents.length) continue;
+    const e = exampleMap(secs);
+    notes = e.notes; fill = e.fill;
+    for (const s of e.secs) {
       title(q, s.title);
-      for (const st of sents) {
-        const items = []; // [bodies, starts the sentence]
-        const html = esc(st.en).replace(BRACKET, (m, b, at, all) => {
-          const body = plain(b);
-          if (b.trim().startsWith('+') && items.length) items[items.length - 1][0].push(body);
-          else items.push([[body], /^[^A-Za-z]*$/.test(all.slice(0, at))]);
-          return `【${esc(body)}】`;
-        });
-        const list = [];
-        for (const [bodies, first] of items) {
-          const e = entry(bodies, first);
-          if (!list.includes(e.text)) list.push(e.text);
-          e.guesses.forEach(g => notes.push(`${s.title || '본문'}: ${g} (두 뜻이 있는 형태 — 확인하세요)`));
-        }
-        // List, sentence and 해석 in one paragraph: separate paragraphs paste into 한글 with empty lines between them.
-        list.forEach(x => fill.push({ word: x, en: st.en, ko: st.ko }));
-        const line = x => esc(x) + ':' + (MEAN[meanKey(x, st.en)] ? ' ' + esc(MEAN[meanKey(x, st.en)]) : '');
-        q.push(`<p style="${P}">${list.map(line).concat(html, esc(st.ko)).join('<br>')}</p>`);
-      }
+      // List, sentence and 해석 in one paragraph: separate paragraphs paste into 한글 with empty lines between them.
+      for (const st of s.sents) q.push(`<p style="${P}">${st.lines.map(esc).concat(st.parts.map(x => typeof x === 'string' ? esc(x) : `【${esc(x.body)}】`).join(''), esc(st.ko)).join('<br>')}</p>`);
     }
   }
   return { q: q.join(''), a: a.join(''), notes, notesTitle: '원형 확인', fill };
@@ -187,6 +203,11 @@ if (typeof document !== 'undefined') {
     } catch (e) { msg('실패: ' + e.message); }
     $('fill').disabled = false;
   });
+  // 한글 파일: one panel per type, shown for the chosen type (예문장 빈칸: no repeat marking, like its copy output)
+  const mode = () => document.querySelector('input[name=mode]:checked').value;
+  const panels = [['example', '예문장', () => exampleMap(parse($('input').value))], ['exblank', '예문장 빈칸', () => parse($('input').value)]]
+    .map(([k, label, data]) => setupFilePanel(k, label, data, () => mode() === k));
+  $('modes').addEventListener('change', () => panels.forEach(f => f()));
 }
 </script>
 </body>

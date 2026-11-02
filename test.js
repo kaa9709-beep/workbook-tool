@@ -715,3 +715,94 @@ for (const [kind, file, full] of [['arrange', '6. 영어_2_YBM_박준언_4과_�
     console.log(kind + ' 파일 checks passed');
   })().catch(e => { console.error(e); process.exit(1); });
 }
+
+// 예문장 · 예문장 빈칸 파일 (수업.html): templates = the finished files on this computer. Each sample's own 4과, turned back
+// into 전처리 ([target] from the marked / blank words), must come out with the same sentences, 해석 and answers.
+for (const [kind, file] of [['example', '1. 영어2_YBM_박준언_4과_예문장.hwpx'], ['exblank', '2. 영어2_YBM_박준언_4과_예문장_빈칸.hwpx']]) {
+  const path = __dirname + '/samples/' + file;
+  if (!fs.existsSync(path)) { console.log(kind + ' 파일: template not here, file checks skipped'); continue; }
+  (async () => {
+    const S = { TextDecoder, TextEncoder }, zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
+    vm.runInNewContext(common + ['hwpx.js', 'wbfile.js'].map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n') +
+      fs.readFileSync(__dirname + '/수업.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1] + ';this.exampleMap=exampleMap;this.parse=parse;this.unzip=unzip;this.exampleFile=exampleFile;this.sentenceFile=sentenceFile;this.topParas=topParas;this.charOf=charOf;', S);
+    const files = await S.unzip(fs.readFileSync(path), inflate);
+    const vis = x => x.replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '').replace(/<hp:lineBreak\/>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    // per 본문: title, word lines, sentences as [text, target?] pieces, 해석; 미주 answers in order
+    const read = (sec, header) => {
+      const target = id => kind === 'example' ? /underline type="BOTTOM"/.test(S.charOf(header, id)) : /textColor="#FFFFFF"/.test(S.charOf(header, id));
+      const out = [];
+      let cur = null;
+      for (const p of S.topParas(sec)) {
+        const own = vis(p.xml);
+        if (!own || own === 'ANSWER') continue;
+        if (/styleIDRef="1"/.test(p.xml) && !own.includes(':')) { cur = { title: own, words: [], sents: [] }; out.push(cur); }
+        else if (!cur) continue;
+        else if (/styleIDRef="1"/.test(p.xml)) cur.words.push(own.split(':')[0].trim());
+        else if (/styleIDRef="2"/.test(p.xml)) {
+          // pieces [text, target?, 미주 here?] in order; a 미주 stands right before the blank it answers
+          const en = [];
+          let id = null;
+          for (const m of p.xml.replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '<NOTE/>').matchAll(/<hp:run charPrIDRef="(\d+)">|<hp:t>([\s\S]*?)<\/hp:t>|<NOTE\/>/g)) {
+            if (m[1]) id = m[1];
+            else if (m[0] === '<NOTE/>') en.push(['', false, true]);
+            else en.push([m[2], target(id), false]);
+          }
+          cur.sents.push({ en, ko: '' });
+        }
+        else if (/styleIDRef="3"/.test(p.xml) && cur.sents.length) cur.sents[cur.sents.length - 1].ko = own;
+      }
+      const answers = [...sec.matchAll(/<hp:autoNum [^>]*numType="ENDNOTE">[\s\S]*?<\/hp:autoNum><\/hp:ctrl>([\s\S]*?)<\/hp:p>/g)].map(m => m[1].replace(/<[^>]+>/g, '').trim());
+      return { secs: out, answers };
+    };
+    // the sentence with [ ] around each target (a space between two target words keeps them in one [ ])
+    // (예문장: each target is a run of its own, so neighbouring targets stay apart; 예문장 빈칸: one run per word, joined)
+    const brackets = en => en.map(([t, b]) => b ? '\u0001' + t + '\u0002' : t).join('').replace(kind === 'example' ? /\u0002()\u0001/g : /\u0002(\s*)\u0001/g, '$1')
+      .replace(/\u0001/g, '[').replace(/\u0002/g, ']').replace(/\]-\[/g, '-').replace(/\s+/g, ' ').trim(); // non-profit: the sample showed the hyphen
+    const orig = read(dec(files['Contents/section0.xml']), dec(files['Contents/header.xml']));
+    const dropped = orig.secs.reduce((n, s) => n + s.sents.filter(st => !st.en.some(x => x[1])).length, 0);
+    orig.secs.forEach(s => { s.sents = s.sents.filter(st => st.en.some(x => x[1])); }); // a sentence without targets is left out, like the copy output
+    assert(dropped <= 1, kind + ': sentences without targets ' + dropped);
+    // 예문장 빈칸: a blank right after a 미주 opens a new [ ]; blank words without one join the sentence's previous [ ] as [+...]
+    const rebuild = en => {
+      let out = '', open = false, note = false;
+      en.forEach(([t, b, n], i) => {
+        if (n) { if (open) { out += ']'; open = false; } note = true; return; }
+        if (b && t.trim()) {
+          if (!open) { out += note ? '[' : '[+'; open = true; note = false; }
+          out += t;
+          return;
+        }
+        const nextBlank = en.slice(i + 1).find(x => x[2] || x[0]);
+        if (open && /^[\s-]*$/.test(t) && nextBlank && nextBlank[1] && !nextBlank[2]) { out += t; return; } // space (or the hyphen of non-profit) inside one blank
+        if (open) { out += ']'; open = false; }
+        out += t;
+      });
+      return (out + (open ? ']' : '')).replace(/\s+/g, ' ').trim();
+    };
+    const input = orig.secs.map(s => '# ' + s.title + '\n' + s.sents.map(st => (kind === 'example' ? brackets(st.en) : rebuild(st.en)) + '\n' + st.ko).join('\n')).join('\n\n');
+    const secs = S.parse(input);
+    const bytes = kind === 'example' ? S.exampleFile(files, S.exampleMap(secs), {}) : S.sentenceFile(files, secs, {}, true);
+    const out = await S.unzip(bytes, inflate), sec = dec(out['Contents/section0.xml']);
+    const made = read(sec, dec(out['Contents/header.xml']));
+    assert.deepStrictEqual(made.secs.map(s => s.title), orig.secs.map(s => s.title), kind + ' 본문');
+    made.secs.forEach((s, i) => {
+      assert.deepStrictEqual(s.sents.map(st => brackets(st.en)), orig.secs[i].sents.map(st => brackets(st.en)), kind + ' ' + s.title + ' sentences');
+      assert.deepStrictEqual(s.sents.map(st => st.ko), orig.secs[i].sents.map(st => st.ko), kind + ' ' + s.title + ' 해석');
+    });
+    if (kind === 'example') {
+      // word lists: the tool's 원형 against the user's finished list (the rest are the user's own edits, e.g. help A with B)
+      const a = made.secs.flatMap(s => s.words), b = orig.secs.flatMap(s => s.words);
+      const same = a.filter(w => b.includes(w)).length;
+      if (process.env.DBG) console.log('TOOL ONLY:', a.filter(w => !b.includes(w)).join(' | '), '\nSAMPLE ONLY:', b.filter(w => !a.includes(w)).join(' | '));
+      assert(same / b.length > 0.9, `word lists: only ${same} of ${b.length} the same`);
+      assert(!sec.includes('<hp:endNote ') && !sec.includes('>ANSWER<'), 'no 미주, no ANSWER');
+    } else {
+      // the sample's own slip is the only difference: its blank covers "mass media" but its answer says "mass"
+      const sp = x => x.replace(/\s+/g, ' ').replace(/ *\/ */g, ' / ');
+      const diff = made.answers.map((a, i) => sp(a) === sp(orig.answers[i]) ? null : [sp(a), sp(orig.answers[i])]).filter(Boolean);
+      assert.deepStrictEqual(diff, [['mass media', 'mass']], kind + ' answers');
+      assert.strictEqual(made.answers.length, orig.answers.length, kind + ' answer count');
+    }
+    console.log(kind + ' 파일 checks passed');
+  })().catch(e => { console.error(e); process.exit(1); });
+}

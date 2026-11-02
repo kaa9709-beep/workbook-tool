@@ -188,11 +188,14 @@ const hasBlank = s => /\[[^\]]*\]/.test(s.en);
 const supNum = n => String(n).replace(/\d/g, d => '⁰¹²³⁴⁵⁶⁷⁸⁹'[d]) + '⁾';
 const title = (arr, t) => t && arr.push(`<p style="${TITLE}">${esc(t)}</p>`);
 
+// A blank for some letters: letters and numbers become a line; hyphens, apostrophes and other punctuation stay visible
+// (non-profit → _____-_______, friend’s → ______’___), like the 한글 originals (사용자 결정, every blank type).
+const blankPart = s => s.split(/([^A-Za-z0-9]+)/).map(x => !x ? '' : /^[A-Za-z0-9]/.test(x) ? line_(x.length) : esc(x)).join('');
 // 어휘 전처리 helpers, shared by 어휘 (문장·문단 빈칸) and 수업용 자료 (예문장·예문장 빈칸). "(e)xplored" keeps the hint letter.
 function blankWords(text) {
   return text.trim().split(/\s+/).map(w => {
     const m = w.match(/^\((.+?)\)(.*)$/);
-    return m ? esc(m[1]) + line_(m[2].length) : line_(w.length);
+    return m ? esc(m[1]) + blankPart(m[2]) : blankPart(w);
   }).join(' ');
 }
 const plain = s => s.replace(/^\s*\+/, '').replace(/\((.+?)\)/g, '$1').trim();

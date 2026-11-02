@@ -100,9 +100,9 @@ function writeMap(mode, text) {
   }
   return { secs, warns, notes };
 }
-// 통영작 blank of one word: letters and numbers blank; apostrophes, quotation marks and other punctuation shown
-// (friend’s → ______’_, ‘final → ‘________), like the 한글 originals.
-const wordBlank = w => w.split(/([^A-Za-z0-9-]+)/).map(x => !x ? '' : /^[A-Za-z0-9-]/.test(x) ? line_(x.length) : esc(x)).join('');
+// 통영작 blank of one word: letters and numbers blank; hyphens, apostrophes, quotation marks and other punctuation shown
+// (friend’s → ______’_, ‘final → ‘________), like the 한글 originals — common.js blankPart.
+const wordBlank = blankPart;
 
 function build(mode, text) {
   const q = [], a = [], w = writeMap(mode, text);
