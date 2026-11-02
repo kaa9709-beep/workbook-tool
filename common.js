@@ -204,6 +204,7 @@ function sentenceBlanks(secs, q, a) {
     if (!sents.length) continue;
     let n = 0; // numbering restarts in each 본문
     title(q, s.title); title(a, s.title);
+    const keys = []; // all answers of this 본문 go in one paragraph (line breaks only), so 한글 adds no empty lines between them
     for (const st of sents) {
       const answers = []; // [number, [bodies]]
       const html = esc(st.en).replace(BRACKET, (_, b) => {
@@ -212,10 +213,11 @@ function sentenceBlanks(secs, q, a) {
         answers.push([++n, [body]]);
         return `${supNum(n)}${blankWords(body)}`;
       });
-      q.push(`<p style="${P}">${html}</p>`);
-      q.push(`<p style="${KO}text-align:right;">${esc(st.ko)}</p>`);
-      for (const [k, bodies] of answers) a.push(`<p style="${P}">${k}) ${esc(bodies.join(' / '))}</p>`);
+      // English and its 해석 in one paragraph, like 한 줄 씨드: an empty line only between sentences
+      q.push(`<p style="${P}">${html}${st.ko ? `<br><span style="${KO}">${esc(st.ko)}</span>` : ''}</p>`);
+      for (const [k, bodies] of answers) keys.push(`${k}) ${esc(bodies.join(' / '))}`);
     }
+    a.push(`<p style="${P}">${keys.join('<br>')}</p>`);
   }
 }
 
