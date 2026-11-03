@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>문제집 서식</title>
+<link rel="stylesheet" href="common.css">
+<script src="theme.js"></script>
+<style>
+.field { display: block; margin: 0 0 10px; }
+.field span { display: block; margin-bottom: 4px; color: var(--muted); font-size: 13px; }
+.field input[type=text] { width: 100%; padding: 8px 10px; font: inherit; border: 1px solid var(--line); border-radius: 9px; }
+#summary p { margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<nav class="topnav">
+  <a class="brand" href="index.html">워크북 툴</a>
+  <a href="어휘.html">어휘</a>
+  <a href="어법.html">어법</a>
+  <a href="영작.html">영작</a>
+  <a href="씨드.html">씨드</a>
+  <a href="수업.html">수업용 자료</a>
+  <a href="자료.html">수업 자료 파일</a>
+  <a href="문제집.html" aria-current="page">문제집 서식</a>
+</nav>
+<header>
+  <h1>문제집 서식</h1>
+</header>
+<main>
+  <section class="panel">
+    <h2>템플릿 (완성된 문제집)</h2>
+    <p class="note" id="tplInfo">서식이 다 입혀진 문제집 한글 파일(.hwpx)을 한 번 등록하세요. 이 컴퓨터에만 저장됩니다.</p>
+    <input type="file" id="tplFile" accept=".hwpx">
+    <h2 style="margin-top:18px">바탕쪽</h2>
+    <div class="field"><span>학원 ("김진혁 영어" 앞)</span>
+      <label><input type="radio" name="academy" value="남양주 대치하이 영어학원"> 남양주 대치하이 영어학원</label>
+      <label style="margin-left:14px"><input type="radio" name="academy" value="압구정 센티움학원"> 압구정 센티움학원</label>
+      <label style="margin-left:14px"><input type="radio" name="academy" value="반포 센티움학원"> 반포 센티움학원</label>
+    </div>
+    <div id="fields"></div>
+  </section>
+  <section class="panel">
+    <h2>초안 (서식을 입힐 문제집) <span><button id="download" disabled>한글 파일 내려받기</button></span></h2>
+    <p class="note">한글에서 출제한 문제집(.hwpx)을 고르세요. 글자·굵게·기울임·밑줄·미주(정답)·표는 그대로 두고, 글꼴·크기·자간·문단 모양만 템플릿대로 바꿉니다.</p>
+    <input type="file" id="draftFile" accept=".hwpx">
+    <div id="summary"></div>
+    <details>
+      <summary>규칙 보기</summary>
+      <p><b>문제 줄</b> — 미주(정답)가 달린 문단. 템플릿의 자동 번호 문단이 됩니다. '문제' 스타일이고 ? 나 "시오."로 끝나는데 미주가 없으면 경고합니다.</p>
+      <p><b>묶음 안내 · 파트 제목</b> — "[1~10] 다음 글을 읽고…", "Part 01." 줄. 초안의 굵게 그대로, 새 쪽에서 시작합니다. [1~10]과 자동 번호가 다르면 경고합니다.</p>
+      <p><b>선택지</b> — ①~⑤로 시작하는 줄과 "(1) … [T/F]" 줄은 내어쓰기. 문장마다 ①~⑤가 붙은 긴 문단은 지문입니다.</p>
+      <p><b>지문</b> — 150자 이상인 영어 문단. 첫 줄 들여쓰기, 맨 앞 띄어쓰기는 지우고, 지문 속 밑줄은 굵게 없이 밑줄만.</p>
+      <p><b>새 쪽</b> — 파트 제목, 묶음 안내, 자기 지문이 있는 문제 앞. 나머지 쪽 나누기는 한글에서 직접 하세요.</p>
+      <p><b>그 밖</b> — 초안의 머리말·쪽 설정은 템플릿 것을 씁니다. 그림은 옮기지 못해요(경고).</p>
+    </details>
+  </section>
+</main>
+<script src="hwpx.js"></script>
+<script src="qbook.js"></script>
+<script>
+const $ = id => document.getElementById(id);
+const store = (k, v) => { try { if (v === undefined) return localStorage.getItem(k); localStorage.setItem(k, v); } catch (e) { return null; } };
+const toB64 = u => { let s = ''; for (let i = 0; i < u.length; i += 0x8000) s += String.fromCharCode.apply(null, u.subarray(i, i + 0x8000)); return btoa(s); };
+const fromB64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+let tpl = null, draft = null, draftName = '', fields = [];
+const academy = () => (document.querySelector('[name=academy]:checked') || {}).value || '';
+const setAcademy = v => document.querySelectorAll('[name=academy]').forEach(r => { r.checked = r.value === v; });
+const saved = () => { try { return JSON.parse(store('qbook-fields') || '{}'); } catch (e) { return {}; } };
+const options = () => ({ academy: academy(), fields: Object.fromEntries(fields.map((f, i) => [f.raw, $('f' + i).value])) });
+
+async function useTemplate(bytes, name, fresh) {
+  try {
+    tpl = await unzip(bytes);
+    const T = readBookTemplate(tpl);
+    if (fresh) store('qbook-fields', '{}');
+    const keep = saved();
+    fields = bookFields(tpl, T);
+    $('fields').innerHTML = fields.map((f, i) => `<label class="field"><span>바탕쪽 글자 ${i + 1} (템플릿: ${esc(f.text)})</span><input type="text" id="f${i}" value="${esc(keep[f.raw] === undefined ? f.text : keep[f.raw])}"></label>`).join('');
+    fields.forEach((f, i) => $('f' + i).addEventListener('input', () => { const k = saved(); k[f.raw] = $('f' + i).value; store('qbook-fields', JSON.stringify(k)); }));
+    if (fresh || !academy()) { setAcademy(academyOf(T.masters.map(n => new TextDecoder().decode(tpl[n])))); store('wbfile-academy', academy()); }
+    $('tplInfo').textContent = '등록된 템플릿: ' + name;
+  } catch (e) { tpl = null; fields = []; $('fields').innerHTML = ''; $('tplInfo').textContent = '템플릿을 쓸 수 없어요: ' + e.message; }
+  check();
+}
+
+// Runs the whole job once to show what will happen (counts, warnings) before downloading.
+function check() {
+  $('download').disabled = !(tpl && draft);
+  if (!draft) { $('summary').innerHTML = ''; return; }
+  if (!tpl) { $('summary').innerHTML = '<p class="warn">템플릿을 먼저 등록하세요.</p>'; return; }
+  try {
+    const r = bookFile(tpl, draft, options()), c = r.counts;
+    $('summary').innerHTML = `<p>${esc(draftName)}: 문제 ${c.문제}개 · 지문 ${c.지문}개 · 새 쪽 ${c.새쪽}곳</p>` +
+      (r.head ? `<p class="note">초안의 머리말 "${esc(r.head)}"은(는) 옮기지 않아요. 필요하면 위 바탕쪽 글자에 적으세요.</p>` : '') +
+      r.warnings.map(w => `<p class="warn">${esc(w)}</p>`).join('');
+  } catch (e) { $('download').disabled = true; $('summary').innerHTML = `<p class="warn">${esc(e.message)}</p>`; }
+}
+
+$('tplFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  store('qbook-template', toB64(bytes)); store('qbook-template-name', f.name);
+  useTemplate(bytes, f.name, true);
+});
+$('draftFile').addEventListener('change', async e => {
+  const f = e.target.files[0];
+  if (!f) return;
+  try { draft = await unzip(new Uint8Array(await f.arrayBuffer())); draftName = f.name.replace(/\.hwpx$/i, ''); }
+  catch (err) { draft = null; $('summary').innerHTML = `<p class="warn">${esc(err.message)}</p>`; }
+  check();
+});
+document.querySelectorAll('[name=academy]').forEach(r => r.addEventListener('change', () => store('wbfile-academy', academy())));
+$('download').addEventListener('click', () => {
+  const r = bookFile(tpl, draft, options()), a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([r.bytes], { type: 'application/hwp+zip' }));
+  a.download = draftName.replace(/[\\/:*?"<>|]/g, '') + '_서식.hwpx';
+  a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+});
+setAcademy(academyName(store('wbfile-academy')));
+const tplSaved = store('qbook-template');
+if (tplSaved) useTemplate(fromB64(tplSaved), store('qbook-template-name'), false);
+</script>
+</body>
+</html>

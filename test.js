@@ -285,6 +285,29 @@ assert.strictEqual((r.q.match(/<p /g) || []).length - 1, 2, '한 줄 씨드: one
 assert(lines(seedTool.build('plain', '■ 3\nIt is.\n잘 알려진\n규칙이다.').q)[2] === '잘 알려진 규칙이다.');
 // Page example: no warnings
 assert.deepStrictEqual([...seedTool.build("num", seedTool.EXAMPLE).warns], []);
+// 한글 파일 rows: 상하씨드 = title, English, notes, 해석, an empty line between passages; 한 줄 씨드 = pairs with an empty line after each
+const rowsOf = (mode, t) => JSON.stringify(seedTool.build(mode, t).rows.map(x => x.k + ':' + x.t));
+assert.strictEqual(rowsOf('plain', wrapIn + '\n■ 3\nIt is.\n그렇다.'), JSON.stringify(['title:본문 2', 'en:A change in the food supply is a catastrophe. It hurts.',
+  'note:* catastrophe: 재앙 **supply: 공급', 'ko:식량 공급의 변화는 전체적인 재앙이다. 그것은 아프게 한다.', 'gap:', 'title:3', 'en:It is.', 'ko:그렇다.']));
+assert.strictEqual(rowsOf('line', wrapIn), JSON.stringify(['title:본문 2', 'en:A change in the food supply is a catastrophe.', 'ko:식량 공급의 변화는 전체적인 재앙이다.', 'gap:',
+  'en:It hurts.', 'ko:그것은 아프게 한다.']));
+{ // the file itself (seedfile.js, no template): margins, fonts, sizes, line spacing, one paragraph per row
+  const S = { TextDecoder, TextEncoder };
+  vm.runInNewContext(fs.readFileSync(__dirname + '/hwpx.js', 'utf8') + fs.readFileSync(__dirname + '/seedfile.js', 'utf8') + ';this.seedFile=seedFile;this.unzip=unzip;', S);
+  const rows = seedTool.build('num', seedTool.EXAMPLE).rows, bytes = S.seedFile(rows);
+  S.unzip(bytes, async d => d).then(f => {
+    const dec = b => new TextDecoder().decode(b), sec = dec(f['Contents/section0.xml']), head = dec(f['Contents/header.xml']);
+    assert.strictEqual(dec(f.mimetype), 'application/hwp+zip');
+    assert(/<hp:margin header="4252" footer="4252" gutter="0" left="4252" right="4252" top="2835" bottom="2835"\/>/.test(sec), 'margins 15 / 10 mm');
+    assert(/face="Pretendard"/.test(head) && /face="Pretendard Medium"/.test(head), 'fonts');
+    assert(/<hh:charPr id="0" height="1000"[^>]*>.*?hangul="0"/.test(head) && /<hh:charPr id="2" height="800"[^>]*>.*?hangul="1"/.test(head), '10 pt / Medium 8 pt');
+    assert(/<hh:paraPr id="0"[\s\S]*?value="225"[\s\S]*?<hh:paraPr id="1"[\s\S]*?value="160"/.test(head), '225 % / 160 %');
+    assert.strictEqual(sec.split('<hp:p ').length - 1, rows.length, 'one paragraph per row');
+    assert(sec.includes('<hp:t>본문 1</hp:t>') && sec.includes('➊ Last summer'), 'text (반 칸 after the number)');
+    assert(/paraPrIDRef="1" styleIDRef="0"[^>]*><hp:run charPrIDRef="2"><hp:t>➊ 지난여름/.test(sec), '해석 look');
+    console.log('씨드 파일 checks passed');
+  }).catch(e => { console.error(e); process.exit(1); });
+}
 console.log('씨드 checks passed');
 
 // 수업용 자료: 예문장 (원형 list + 【 】) and 예문장 빈칸 (문장 빈칸 without the repeat hints), from the same 어휘 전처리
@@ -804,5 +827,53 @@ for (const [kind, file] of [['example', '1. 영어2_YBM_박준언_4과_예문장
       assert.strictEqual(made.answers.length, orig.answers.length, kind + ' answer count');
     }
     console.log(kind + ' 파일 checks passed');
+  })().catch(e => { console.error(e); process.exit(1); });
+}
+
+// 문제집 서식 입히기 (qbook.js): the user's draft and finished 문제집 on this computer (samples/ is not in git)
+const bookTpl = __dirname + '/samples/문제집 샘플.hwpx', bookDraft = __dirname + '/samples/출제 문제 샘플.hwpx';
+if (fs.existsSync(bookTpl) && fs.existsSync(bookDraft)) {
+  (async () => {
+    const S = { TextDecoder, TextEncoder }, zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
+    vm.runInNewContext(['hwpx.js', 'qbook.js'].map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n') +
+      ';this.unzip=unzip;this.bookFile=bookFile;this.readBookTemplate=readBookTemplate;this.bookFields=bookFields;this.hwpText=hwpText;', S);
+    const tpl = await S.unzip(fs.readFileSync(bookTpl), inflate), draft = await S.unzip(fs.readFileSync(bookDraft), inflate);
+    const T = S.readBookTemplate(tpl);
+    assert.strictEqual(JSON.stringify(S.bookFields(tpl, T).map(f => f.text)), JSON.stringify(['공통영어 2 (미래엔)', '03', '압구정고 1학년', ' 진짜 혁신 교과서편 (2차)']), '바탕쪽 칸');
+    const r = S.bookFile(tpl, draft, { academy: '반포 센티움학원', fields: { '03': '05' } });
+    const out = await S.unzip(r.bytes, inflate), sec = dec(out['Contents/section0.xml']), head = dec(out['Contents/header.xml']);
+    // every letter of the draft is there, in order: only its 머리말 goes, and its "Answer" line becomes the template's "ANSWER"
+    const letters = x => S.hwpText(x.replace(/<hp:ctrl><hp:header\b[\s\S]*?<\/hp:header><\/hp:ctrl>/g, '')).replace(/\s+/g, '');
+    assert.strictEqual(letters(sec), letters(dec(draft['Contents/section0.xml'])).replace(/Answer$/, 'ANSWER'), 'letters');
+    assert.strictEqual(sec.split('<hp:endNote ').length, 88, '87 미주');
+    assert.strictEqual(r.counts.문제, 89, 'questions');
+    assert.strictEqual(r.warnings.length, 2, 'two 문제 without 미주: ' + r.warnings.join(' / '));
+    // every style the body uses exists, the counts in the header match, letters: template fonts, 자간 0
+    const used = (ref) => new Set([...sec.matchAll(new RegExp(ref + 'IDRef="(\\d+)"', 'g'))].map(m => m[1]));
+    [['charPr', 'charProperties'], ['paraPr', 'paraProperties'], ['borderFill', 'borderFills']].forEach(([t, list]) => {
+      const ids = [...head.matchAll(new RegExp(`<hh:${t} id="(\\d+)"`, 'g'))].map(m => m[1]);
+      assert.strictEqual(+head.match(new RegExp(`<hh:${list} itemCnt="(\\d+)"`))[1], ids.length, t + ' itemCnt');
+      used(t).forEach(id => assert(ids.includes(id), t + ' ' + id + ' missing'));
+    });
+    const def = id => head.match(new RegExp(`<hh:charPr id="${id}"[\\s\\S]*?</hh:charPr>`))[0];
+    used('charPr').forEach(id => {
+      assert(/hangul="(11|4)"/.test(def(id)), 'font of ' + id);
+      assert(/<hh:spacing hangul="0"/.test(def(id)), '자간 of ' + id);
+    });
+    // 지문 underlines are not bold; the question line keeps 굵게+밑줄
+    const runsIn = para => [...sec.matchAll(new RegExp(`<hp:p [^>]*paraPrIDRef="${para}"[^>]*>([\\s\\S]*?)</hp:p>`, 'g'))].flatMap(m => [...m[1].replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '').matchAll(/charPrIDRef="(\d+)"/g)].map(x => x[1]));
+    const boldLine = id => /<hh:bold\/>/.test(def(id)) && /<hh:underline type="BOTTOM"/.test(def(id));
+    assert(runsIn(T.passage).some(id => /<hh:underline type="BOTTOM"/.test(def(id))) && !runsIn(T.passage).some(boldLine), '지문 밑줄');
+    assert(runsIn(T.question).some(boldLine), '문제 줄 굵게+밑줄');
+    // new pages: Part 02 / 03, the 묶음 안내 after the first, a 문제 with its own 지문; not a T/F 문제 inside a 묶음
+    const at = s => r.paras.find(p => p.text.startsWith(s));
+    assert(!at('Part 01').page && at('Part 02').page && at('Part 03').page && !at('[1~10]').page && at('[11~14]').page, 'part / group pages');
+    assert(!r.paras.find(p => p.text.startsWith('다음 주어진 문장의 내용이 윗글과 일치하면')).page, 'T/F in a 묶음');
+    assert(r.paras.filter(p => p.text.startsWith('다음 글의 밑줄 친 부분 중, 어법상 틀린 것은?')).slice(1).every(p => p.page), '문제 with its own 지문');
+    assert.strictEqual(at('③ Another effective method').role, 'passage', '③ starting a 지문');
+    assert.strictEqual(at('(1) A habit refers').role, 'hang', 'T/F sentence');
+    const masters = Object.keys(out).filter(n => /masterpage/.test(n)).map(n => dec(out[n])).join('');
+    assert(masters.includes('<hp:t>05</hp:t>') && !masters.includes('<hp:t>03</hp:t>') && masters.includes('반포 센티움학원'), '바탕쪽');
+    console.log('문제집 서식 checks passed');
   })().catch(e => { console.error(e); process.exit(1); });
 }

@@ -16,6 +16,7 @@
     '씨드.html': svg('<path d="M12 20v-8"/><path d="M12 12c0-4 3-7 7-7 0 4-3 7-7 7z"/><path d="M12 14c0-3-2-5-6-5 0 3 2 5 6 5z"/>'),
     '수업.html': svg('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>'),
     '자료.html': svg('<path d="M14 3H7a2 2 0 00-2 2v14a2 2 0 002 2h10a2 2 0 002-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h6"/>'),
+    '문제집.html': svg('<path d="M5 4h11l3 3v13H5z"/><path d="M9 10h6M9 14h6M9 18h3"/>'),
   };
   const MOON = svg('<path d="M20 14.5A8 8 0 019.5 4 8 8 0 1020 14.5z"/>');
 
@@ -26,6 +27,7 @@
     const group = (href, name) => { const a = nav.querySelector(`a[href="${href}"]`); if (a) a.insertAdjacentHTML('beforebegin', `<span class="group">${name}</span>`); };
     group('어휘.html', '워크북');
     group('씨드.html', '수업 자료');
+    group('문제집.html', '문제집');
     const brand = nav.querySelector('.brand');
     (brand || nav.firstChild).insertAdjacentHTML(brand ? 'afterend' : 'beforebegin',
       `<label class="screen-mode">${MOON}<span>화면 모드</span><select aria-label="화면 모드">

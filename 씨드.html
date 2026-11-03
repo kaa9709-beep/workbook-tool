@@ -22,6 +22,7 @@
   <a href="씨드.html" aria-current="page">씨드</a>
   <a href="수업.html">수업용 자료</a>
   <a href="자료.html">수업 자료 파일</a>
+  <a href="문제집.html">문제집 서식</a>
 </nav>
 <header>
   <h1>씨드</h1>
@@ -46,12 +47,17 @@
     </details>
   </section>
   <section class="panel">
-    <h2>결과 <span><span class="ok" id="okQ"></span> <button data-copy="outQ">복사</button></span></h2>
+    <h2>결과 <span><span class="ok" id="okQ"></span> <button data-copy="outQ">복사</button> <button id="download">한글 파일 내려받기</button></span></h2>
+    <label style="display:block;margin:0 0 10px"><span style="display:block;margin-bottom:4px;color:var(--muted);font-size:13px">한글 파일 이름 (비우면 "첫 제목_유형")</span>
+      <input type="text" id="fileName" style="width:100%;padding:8px 10px;font:inherit;border:1px solid var(--line);border-radius:9px"></label>
+    <p class="note">한글 파일: A4, 여백 위·아래 10mm, 왼쪽·오른쪽·머리말·꼬리말 15mm. 영어·제목 Pretendard 10pt(줄 간격 225%), 해석·주석 Pretendard Medium 8pt(160%).</p>
     <div class="out" id="outQ" style="max-height:72vh"></div>
     <div id="outA" hidden></div><span id="okA" hidden></span>
   </section>
 </main>
 <script src="common.js"></script>
+<script src="hwpx.js"></script>
+<script src="seedfile.js"></script>
 <script>
 // Black circled numbers; ⓫–⓴ are the same style, there is nothing past 20.
 const NUM = '➊➋➌➍➎➏➐➑➒➓⓫⓬⓭⓮⓯⓰⓱⓲⓳⓴';
@@ -117,9 +123,13 @@ function split(text, en, title) {
 const num = n => (NUM[n - 1] || `(${n})`) + HALF;
 const para = s => `<p style="${P}">${esc(s)}</p>`;
 
+// rows: the same output for the 한글 file (seedfile.js) — title / en / ko / note, 'gap' = an empty line between
+// passages (상하씨드) or after every pair (한 줄 씨드, like the user's own files).
 function build(mode, text) {
-  const out = [], warns = [], notes = [], tables = [], ps = passages(text);
+  const out = [], warns = [], notes = [], tables = [], ps = passages(text), rows = [];
   for (const p of ps) {
+    if (rows.length && rows[rows.length - 1].k !== 'gap') rows.push({ k: 'gap', t: '' });
+    if (p.title) rows.push({ k: 'title', t: p.title });
     const E = split(p.en, true, p.title), K = split(p.ko, false, p.title), name = p.title || '제목 없음';
     E.cands.concat(K.cands).filter(c => c.kind !== 'sure' || c.key in OVR)
       .forEach(c => notes.push({ key: c.key, text: `${name}: ${c.ctx}${c.cut ? '' : ' → 한 문장으로 묶음'}`, off: !c.cut, strike: false }));
@@ -137,16 +147,21 @@ function build(mode, text) {
     title(out, p.title);
     if (mode === 'line') {
       // English and its 해석 in one paragraph (line break only), so 한글 puts no empty line between them
-      for (let i = 0; i < Math.max(n, m); i++) out.push(`<p style="${P}">${esc(E.pieces[i] || '')}<br>${esc(K.pieces[i] || '')}</p>`);
+      for (let i = 0; i < Math.max(n, m); i++) {
+        out.push(`<p style="${P}">${esc(E.pieces[i] || '')}<br>${esc(K.pieces[i] || '')}</p>`);
+        rows.push({ k: 'en', t: E.pieces[i] || '' }, { k: 'ko', t: K.pieces[i] || '' }, { k: 'gap', t: '' });
+      }
     } else {
       const join = S => mode === 'num' ? S.pieces.map((s, i) => num(i + 1) + s).join(' ') : S.pieces.join(' ');
       out.push(para(join(E)));
-      p.notes.forEach(l => out.push(para(l))); // footnotes stay under the English (한 줄 씨드 drops them)
-      if (p.ko) out.push(para(join(K)));
+      rows.push({ k: 'en', t: join(E) });
+      p.notes.forEach(l => { out.push(para(l)); rows.push({ k: 'note', t: l }); }); // footnotes stay under the English (한 줄 씨드 drops them)
+      if (p.ko) { out.push(para(join(K))); rows.push({ k: 'ko', t: join(K) }); }
     }
   }
+  while (rows.length && rows[rows.length - 1].k === 'gap') rows.pop();
   return {
-    q: out.join(''), a: '', warns, notes, html: tables.join(''),
+    q: out.join(''), a: '', warns, notes, html: tables.join(''), rows,
     titles: ps.map(p => p.title), notesTitle: '애매한 곳', notesHint: ' — 체크하면 거기서 문장을 나눕니다.',
   };
 }
@@ -169,7 +184,18 @@ less plastic.
 가득하다는 것을 깨달았다. 우리는 왜 그렇게 많은 플라스틱을
 바다에 버릴까? 그녀는 플라스틱을 덜 쓰기로 결심했다.`;
 
-if (typeof document !== 'undefined') setupPage(build, EXAMPLE, 'seed', onToggle);
+if (typeof document !== 'undefined') {
+  setupPage(build, EXAMPLE, 'seed', onToggle);
+  document.getElementById('download').addEventListener('click', () => {
+    const mode = document.querySelector('input[name=mode]:checked').value, r = build(mode, document.getElementById('input').value);
+    const typed = document.getElementById('fileName').value.trim().replace(/\.hwpx$/i, '');
+    const name = typed || (r.titles.find(Boolean) || '씨드') + '_' + { plain: '상하씨드_번호X', num: '상하씨드_번호O', line: '한줄씨드' }[mode];
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([seedFile(r.rows)], { type: 'application/hwp+zip' }));
+    a.download = name.replace(/[\\/:*?"<>|]/g, '') + '.hwpx';
+    a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+}
 </script>
 </body>
 </html>
