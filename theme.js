@@ -27,7 +27,7 @@
     const group = (href, name) => { const a = nav.querySelector(`a[href="${href}"]`); if (a) a.insertAdjacentHTML('beforebegin', `<span class="group">${name}</span>`); };
     group('어휘.html', '워크북');
     group('씨드.html', '수업 자료');
-    group('문제집.html', '문제집');
+    group('문제집.html', '문제집 · 공사 중');
     const brand = nav.querySelector('.brand');
     (brand || nav.firstChild).insertAdjacentHTML(brand ? 'afterend' : 'beforebegin',
       `<label class="screen-mode">${MOON}<span>화면 모드</span><select aria-label="화면 모드">
