@@ -21,7 +21,7 @@ No blanks here.
 
 Second paragraph [here], a fascinating idea.
 
-# 본문 2
+# 14-E
 They explored it.`;
 
 // 문장 빈칸: numbering, auto first-letter blanks for repeats within one 본문, blank-free sentences dropped
@@ -30,8 +30,13 @@ assert.deepStrictEqual(text(r.a).split('\n'), ['본문 1', '1) were fascinated b
 assert(r.q.includes('⁴⁾e___________'), 'hint letter kept, rest blanked');
 assert.strictEqual(vocabTool.supNum(12), '¹²⁾');
 assert(!r.q.includes('No blanks here') && !r.q.includes('fascinated'), 'answers hidden, blank-free sentence dropped');
-assert(!r.q.includes('They'), 'repeats are not carried into the next 본문');
+assert(!r.q.includes('They'), 'repeats are not carried into the next passage (not 교과서)');
 assert.deepStrictEqual([...r.notes.map(n => n.text)], ['본문 1: explored ← exploring', '본문 1: fascinating ← fascinated']);
+// 교과서 본문 (본문 N only): what was marked in an earlier 본문 is a repeat in the later ones; Further Reading and 14-E start fresh
+r = vocabTool.build('sentence', vocab.replace('# 14-E', '# 본문 2') + '\n\n# 본문 3\nHe was eager.\n\n# Further Reading\nWe explored.\n\n# 14-E\nYou explored.');
+assert.deepStrictEqual(text(r.a).split('\n').slice(8), ['본문 2', '1) (e)xplored', '본문 3', '1) (e)ager'], '교과서 본문 share their words');
+assert(!r.q.includes('We') && !r.q.includes('You'), 'Further Reading and 14-E start fresh');
+assert.deepStrictEqual([...r.notes.map(n => n.text)].slice(2), ['본문 2: explored ← exploring (본문 1)', '본문 3: eager ← eagerly (본문 1)']);
 
 // Unticking a repeat leaves that word alone (outside [ ] it is no longer a blank); the note stays, marked off
 vocabTool.RELEASED.add('본문 1|explored');
