@@ -31,8 +31,51 @@ function readFrame(files, what, needNotes = true) {
   const lesson = mx.map(x => (x.match(/<hp:t>(Lesson\b[^<]*)<\/hp:t>/i) || [])[1]).find(Boolean);
   const notes = [...sec.matchAll(NOTE_RE)];
   if (needNotes && !notes.length) throw new Error(`템플릿에 미주가 없어요. 미주로 정답을 단 ${what} 파일을 넣어 주세요.`);
-  return { sec, header, ps, notes, masters, lesson: lesson && hwpText(lesson), lessonXml: lesson, academy: academyOf(mx),
+  return { sec, header, ps, notes, masters, lesson: lesson && hwpText(lesson), lessonXml: lesson, academy: academyOf(mx), top: readTop(mx, header),
     white: new Set([...header.matchAll(/<hh:charPr id="(\d+)"[^>]*textColor="#FFFFFF"/g)].map(m => m[1])) };
+}
+
+// 바탕쪽 교재 이름 (예문장 · 예문장 빈칸): the colored box at the top of both pages — a right-aligned name followed by spaces
+// (in its own run or in runs of their own) that kept it off the box's slanted end. Same rules as 수업용 자료: the tool writes
+// the name alone, shrunk to one line if long, and widens the box's margins by the old padding instead.
+const TOP_RE = /(<hp:p [^>]*paraPrIDRef="(\d+)"[^>]*>)<hp:run charPrIDRef="(\d+)"><hp:t>((?:(?!<\/hp:t>)[\s\S])*?)<\/hp:t><\/hp:run>((?:<hp:run charPrIDRef="\d+"\/>|<hp:run charPrIDRef="\d+"><hp:t>(?: |<hp:fwSpace\/>)*<\/hp:t><\/hp:run>)*)(?=<hp:linesegarray>|<\/hp:p>)/g;
+const SPACES = '(?: |<hp:fwSpace\\/>)*';
+function topParts(x, m, header) {
+  const lead = m[4].match(new RegExp('^' + SPACES))[0], rest = m[4].slice(lead.length), tail = rest.match(new RegExp(SPACES + '$'))[0];
+  const name = rest.slice(0, rest.length - tail.length), id = m[3];
+  if (x.lastIndexOf('<hp:rect', m.index) < x.lastIndexOf('</hp:rect>', m.index) || !/[A-Za-z가-힣]/.test(hwpText(name))) return null;
+  const para = header.match(new RegExp('<hh:paraPr id="' + m[2] + '"[\\s\\S]*?</hh:paraPr>'));
+  if (!para || !/horizontal="RIGHT"/.test(para[0])) return null;
+  const width = (t, i) => textWidth(t, fontOf(header, i)) * charHeight(header, i) / 1000;
+  const padW = width(tail, id) + [...m[5].matchAll(/<hp:run charPrIDRef="(\d+)"><hp:t>([\s\S]*?)<\/hp:t>/g)].reduce((w, r) => w + width(r[2], r[1]), 0);
+  const base = charHeight(header, id);
+  if (padW < SPACE * base / 1000) return null; // no padding: not the 교재 이름 box
+  return { name: hwpText(name).trim(), id, base, leadW: width(lead, id), padW };
+}
+function readTop(xmls, header) {
+  for (const x of xmls) for (const m of x.matchAll(TOP_RE)) {
+    const p = topParts(x, m, header);
+    if (!p) continue;
+    // As 수업용 자료: 1.5 spaces (at least) from the box's left end, which runs off the page; 2/3 of the old padding + half a space on the right.
+    const half = SPACE / 2 * p.base / 1000, box = boxAt(x, m.index);
+    const lead = Math.round(Math.max(p.leadW, 2 * SPACE * p.base / 1000) - half), pad = Math.round(p.padW * 2 / 3 + half);
+    return { name: p.name, charId: p.id, font: fontOf(header, p.id), base: p.base, lead, pad, avail: box.width - box.left - box.right - lead - pad };
+  }
+  return null;
+}
+// 예문장 빈칸: its smaller name (10 pt) sat too close to the slanted end — half a space more on the right (사용자 요청).
+function moreTopPad(T) {
+  if (T.top) { const half = Math.round(SPACE / 2 * T.top.base / 1000); T.top.pad += half; T.top.avail -= half; }
+  return T;
+}
+// Every 교재 이름 box of a 바탕쪽 with the template's name: the new name alone in char style id, margins grown.
+function putTop(x, header, top, name, id) {
+  const hits = [...x.matchAll(TOP_RE)].map(m => [m, topParts(x, m, header)]).filter(([, p]) => p && p.name.replace(/\s+/g, '') === top.name.replace(/\s+/g, ''));
+  for (const [m] of hits.reverse()) {
+    const after = x.slice(m.index + m[0].length).replace(/<hp:textMargin left="(\d+)" right="(\d+)"/, (_, l, r) => `<hp:textMargin left="${+l + top.lead}" right="${+r + top.pad}"`);
+    x = x.slice(0, m.index) + m[1] + `<hp:run charPrIDRef="${id}"><hp:t>${xmlEsc(name)}</hp:t></hp:run>` + after;
+  }
+  return x;
 }
 // needAnswer false: no ANSWER part; the file just ends after the new body (예문장).
 function frameParts(F, titleAt, from, englishXmls, missing, needBlank = true, needAnswer = true) {
@@ -51,7 +94,7 @@ function frameParts(F, titleAt, from, englishXmls, missing, needBlank = true, ne
   if (missing.length) throw new Error('템플릿에서 ' + missing.join(', ') + '을(를) 찾지 못했어요.');
   const start = F.sec.slice(0, F.ps[titleAt].start);
   return { start, end: F.sec.slice(needAnswer ? F.ps[endAt].start : F.ps[F.ps.length - 1].end), blankId, textId, page: firstPage(start),
-    masters: F.masters, lesson: F.lesson, lessonXml: F.lessonXml, academy: F.academy };
+    masters: F.masters, lesson: F.lesson, lessonXml: F.lessonXml, academy: F.academy, top: F.top, header: F.header };
 }
 
 // 쪽 번호 '새 번호로 시작' on the first page: page = a number sets it, null/0 drops it (pages count from 1), undefined keeps the template's.
@@ -67,13 +110,20 @@ function pageStart(start, page) {
   return done || !tag ? out : out.replace(/(<hp:run charPrIDRef="\d+">)(<hp:t\/>|<hp:t>)/, `$1${tag}$2`);
 }
 
-// The new file: template parts around the new body, 바탕쪽 과 제목 and 학원 changed.
+// The new file: template parts around the new body, 바탕쪽 과 제목, 학원 and 교재 이름 (o.top) changed.
 function finishFile(files, T, body, o) {
   const out = Object.assign({}, files);
   out['Contents/section0.xml'] = pageStart(T.start, o.page) + body.join('') + T.end;
+  let topId = null;
+  if (T.top && o.top) {
+    const H = { header: T.header, sized: {} };
+    topId = sizedChar(H, T.top.charId, Math.max(MIN_SIZE.book, fitSize(T.top, xmlEsc(o.top))));
+    out['Contents/header.xml'] = H.header;
+  }
   T.masters.forEach(n => {
     let x = dec8(files[n]);
     if (T.lessonXml && o.lesson) x = x.split('<hp:t>' + T.lessonXml + '</hp:t>').join('<hp:t>' + xmlEsc(o.lesson) + '</hp:t>');
+    if (topId !== null) x = putTop(x, T.header, T.top, o.top, topId);
     out[n] = putAcademy(x, o.academy);
   });
   if (out['Preview/PrvText.txt']) out['Preview/PrvText.txt'] = o.lesson || '';
@@ -157,7 +207,7 @@ function sentenceRuns(T, en, state, title) {
 // example: 예문장 빈칸 (수업용 자료) — the same layout from its own template, with the template's number of empty lines
 // between sentences (문장 빈칸 always has 3, 사용자 결정), and passages without the repeat marking.
 function sentenceFile(files, secs, o = {}, example = false) {
-  const T = example ? readSentenceTemplate(files, '예문장 빈칸') : readSentenceTemplate(files), body = [], state = { k: 0, inst: 1000, gap: false };
+  const T = example ? moreTopPad(readSentenceTemplate(files, '예문장 빈칸')) : readSentenceTemplate(files), body = [], state = { k: 0, inst: 1000, gap: false };
   const between = example ? T.gap || SENT_GAP : SENT_GAP;
   let first = true;
   for (const s of secs) {
@@ -487,8 +537,9 @@ const FILE_KINDS = {
   fix: { read: readFixTemplate, make: fixFile },
   arrange: { read: readArrangeTemplate, make: (f, d, o) => writeFile(f, d, o, false) },
   full: { read: readFullTemplate, make: (f, d, o) => writeFile(f, d, o, true) },
-  example: { read: readExampleTemplate, make: exampleFile },
-  exblank: { read: f => readSentenceTemplate(f, '예문장 빈칸'), make: (f, d, o) => sentenceFile(f, d, o, true) },
+  // top: the panel has a 바탕쪽 교재 이름 field (사용자 요청: 예문장 · 예문장 빈칸, like 수업용 자료)
+  example: { read: readExampleTemplate, make: exampleFile, top: true },
+  exblank: { read: f => moreTopPad(readSentenceTemplate(f, '예문장 빈칸')), make: (f, d, o) => sentenceFile(f, d, o, true), top: true },
 };
 
 // Browser: a "한글 파일" panel under the copy panel. The template stays in this computer's localStorage, never uploaded.
@@ -506,6 +557,7 @@ function setupFilePanel(kind, label, getSecs, active) {
   panel.innerHTML = `<h2>한글 파일 (${label}) <span><button id="${kind}-download">한글 파일 내려받기</button></span></h2>
     <p class="note" id="${kind}-info">완성된 ${label} 한글 파일(.hwpx)을 템플릿으로 한 번 등록하세요. 이 컴퓨터에만 저장됩니다.</p>
     <input type="file" id="${kind}-tpl" accept=".hwpx">
+    ${K.top ? lab('바탕쪽 교재 이름 (쪽 위 색 상자 — 길면 글자 크기를 줄여 한 줄에 맞춤)') + `<input type="text" id="${kind}-top" style="${field};width:100%"><p class="note" id="${kind}-topInfo" style="margin:4px 0 0"></p>` : ''}
     ${lab('바탕쪽 과 제목 (홀수 쪽 위)')}<input type="text" id="${kind}-lesson" style="${field};width:100%">
     ${lab('바탕쪽 학원 ("김진혁 영어" 앞)')}
     <div>${ACADEMIES.map(a => `<label style="margin-right:14px;white-space:nowrap"><input type="radio" name="${kind}-academy" value="${a}"> ${a}</label>`).join('')}</div>
@@ -524,6 +576,15 @@ function setupFilePanel(kind, label, getSecs, active) {
     $('download').disabled = !tpl;
     $('warn').innerHTML = tpl ? '' : '<p class="warn">템플릿을 먼저 등록하세요.</p>';
     store('wbfile-lesson-' + kind, $('lesson').value); store('wbfile-page-' + kind, $('page').value);
+    if (K.top) { store('wbfile-top-' + kind, $('top').value); $('topInfo').textContent = topNote(); }
+  }
+  // How big the 교재 이름 will be (same messages as 수업용 자료), so a too-long one is seen before downloading.
+  function topNote() {
+    const f = tpl && tpl.top, v = $('top').value.trim();
+    if (!f || !v) return tpl && !f ? '템플릿에서 바탕쪽 교재 이름 상자를 찾지 못했어요.' : '';
+    const size = fitSize(f, xmlEsc(v));
+    if (size < MIN_SIZE.book) return `⚠ 교재 이름이 너무 길어요 — ${MIN_SIZE.book / 100}pt로 넣지만 두 줄로 넘어갈 수 있어요. 줄여 주세요.`;
+    return size < f.base ? `글자 크기 ${f.base / 100}pt → ${size / 100}pt로 줄여서 넣어요.` : `글자 크기 ${f.base / 100}pt 그대로 들어가요.`;
   }
   async function useTemplate(bytes, name, fresh) {
     try {
@@ -533,6 +594,7 @@ function setupFilePanel(kind, label, getSecs, active) {
       if (fresh || !academy()) { setAcademy(tpl.academy); store('wbfile-academy', academy()); }
       if (fresh || !$('page').value) $('page').value = tpl.page || '';
       $('lesson').disabled = !tpl.lesson;
+      if (K.top) { if (fresh || !$('top').value) $('top').value = tpl.top ? tpl.top.name : ''; $('top').disabled = !tpl.top; }
     } catch (e) { files = tpl = null; $('info').textContent = '템플릿을 쓸 수 없어요: ' + e.message; }
     refresh();
   }
@@ -544,7 +606,7 @@ function setupFilePanel(kind, label, getSecs, active) {
     useTemplate(bytes, f.name, true);
   });
   $('download').addEventListener('click', () => {
-    const blob = new Blob([K.make(files, getSecs(), { lesson: $('lesson').value.trim(), academy: academy(), page: page() })], { type: 'application/hwp+zip' });
+    const blob = new Blob([K.make(files, getSecs(), { lesson: $('lesson').value.trim(), academy: academy(), page: page(), top: K.top ? $('top').value.trim() : '' })], { type: 'application/hwp+zip' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = ($('lesson').value.trim() || label).replace(/[\\/:*?"<>|]/g, '') + `_${label}.hwpx`;
@@ -552,7 +614,8 @@ function setupFilePanel(kind, label, getSecs, active) {
   });
   $('lesson').value = store('wbfile-lesson-' + kind) || '';
   $('page').value = store('wbfile-page-' + kind) || '';
-  ['lesson', 'page'].forEach(k => $(k).addEventListener('input', refresh));
+  if (K.top) $('top').value = store('wbfile-top-' + kind) || '';
+  ['lesson', 'page', ...(K.top ? ['top'] : [])].forEach(k => $(k).addEventListener('input', refresh));
   setAcademy(academyName(store('wbfile-academy')));
   radios().forEach(r => r.addEventListener('change', () => { store('wbfile-academy', academy()); refresh(); }));
   const saved = store('wbfile-' + kind);

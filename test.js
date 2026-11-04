@@ -752,7 +752,7 @@ for (const [kind, file] of [['example', '1. 영어2_YBM_박준언_4과_예문장
   (async () => {
     const S = { TextDecoder, TextEncoder }, zlib = require('zlib'), inflate = async d => zlib.inflateRawSync(d), dec = b => new TextDecoder().decode(b);
     vm.runInNewContext(common + ['hwpx.js', 'wbfile.js'].map(f => fs.readFileSync(__dirname + '/' + f, 'utf8')).join('\n') +
-      fs.readFileSync(__dirname + '/수업.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1] + ';this.exampleMap=exampleMap;this.parse=parse;this.unzip=unzip;this.exampleFile=exampleFile;this.sentenceFile=sentenceFile;this.topParas=topParas;this.charOf=charOf;', S);
+      fs.readFileSync(__dirname + '/수업.html', 'utf8').match(/<script>([\s\S]*)<\/script>/)[1] + ';this.exampleMap=exampleMap;this.parse=parse;this.unzip=unzip;this.exampleFile=exampleFile;this.sentenceFile=sentenceFile;this.topParas=topParas;this.charOf=charOf;this.FILE_KINDS=FILE_KINDS;', S);
     const files = await S.unzip(fs.readFileSync(path), inflate);
     const vis = x => x.replace(/<hp:endNote [\s\S]*?<\/hp:endNote>/g, '').replace(/<hp:lineBreak\/>/g, ' ').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
     // per 본문: title, word lines, sentences as [text, target?] pieces, 해석; 미주 answers in order
@@ -831,6 +831,30 @@ for (const [kind, file] of [['example', '1. 영어2_YBM_박준언_4과_예문장
       assert.deepStrictEqual(diff, [['mass media', 'mass']], kind + ' answers');
       assert.strictEqual(made.answers.length, orig.answers.length, kind + ' answer count');
     }
+    // 바탕쪽 교재 이름 (top of both pages), same rules as 수업용 자료: the name alone, the padding turned into box margins,
+    // shrunk in 0.5 pt steps when long (a new char style), untouched when the field is empty.
+    const T = S.FILE_KINDS[kind].read(files);
+    assert.strictEqual(T.top && T.top.name, kind === 'example' ? '영어 2 (YBM 박) 예문장' : '영어 2 (YBM 박) 예문장 빈칸', kind + ' 교재 이름 found');
+    const masters = Object.keys(files).filter(n => /masterpage\d+\.xml$/.test(n));
+    const margins = x => [...x.matchAll(/<hp:textMargin left="(\d+)" right="(\d+)"/g)].map(m => [+m[1], +m[2]]);
+    for (const [name, smaller] of [['영어 1 (능률 민)', false], ['고등 영어 독해와 작문 (능률 김성곤) 예문장 · 2학기 기말고사 대비', true]]) {
+      const o = await S.unzip(S.FILE_KINDS[kind].make(files, kind === 'example' ? S.exampleMap(secs) : secs, { top: name }), inflate);
+      const header = dec(o['Contents/header.xml']);
+      masters.forEach(n => {
+        const before = dec(files[n]), after = dec(o[n]);
+        const run = after.match(new RegExp('<hp:run charPrIDRef="(\\d+)"><hp:t>' + name.replace(/[()]/g, '\\$&') + '</hp:t></hp:run>(<hp:linesegarray>|</hp:p>)'));
+        assert(run, kind + ' ' + n + ': new name alone in its paragraph');
+        assert(!after.includes('(YBM'), kind + ' ' + n + ': old name gone');
+        const size = +header.match(new RegExp('<hh:charPr id="' + run[1] + '" height="(\\d+)"'))[1];
+        assert(smaller ? size < T.top.base && size >= 700 && size % 50 === 0 : size === T.top.base, kind + ' size ' + size);
+        // only the 교재 이름 box's margins grew, by the template's padding
+        const mb = margins(before), ma = margins(after), grown = ma.map((m, i) => [m[0] - mb[i][0], m[1] - mb[i][1]]).filter(d => d[0] || d[1]);
+        assert.deepStrictEqual(grown, [[T.top.lead, T.top.pad]], kind + ' ' + n + ' margins');
+      });
+      assert.strictEqual(+header.match(/<hh:charProperties itemCnt="(\d+)"/)[1], (header.match(/<hh:charPr id=/g) || []).length, kind + ' charPr count');
+    }
+    const plain = await S.unzip(S.FILE_KINDS[kind].make(files, kind === 'example' ? S.exampleMap(secs) : secs, {}), inflate);
+    masters.forEach(n => assert.strictEqual(dec(plain[n]), dec(files[n]), kind + ' ' + n + ' unchanged without a name'));
     console.log(kind + ' 파일 checks passed');
   })().catch(e => { console.error(e); process.exit(1); });
 }
